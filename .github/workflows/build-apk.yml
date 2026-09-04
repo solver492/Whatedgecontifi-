@@ -13,12 +13,10 @@ jobs:
 
     steps:
 
-      # Récupération du projet
       - name: Checkout code
         uses: actions/checkout@v4
 
 
-      # Installation de Java 17
       - name: Set up JDK 17
         uses: actions/setup-java@v4
         with:
@@ -27,12 +25,10 @@ jobs:
           cache: gradle
 
 
-      # Installation et configuration de Gradle
       - name: Set up Gradle
         uses: gradle/actions/setup-gradle@v4
 
 
-      # Vérification de la structure du projet
       - name: Show project structure
         run: |
           echo "=== PROJECT FILES ==="
@@ -43,18 +39,29 @@ jobs:
           gradle --version
 
 
-      # Compilation APK Debug
+      - name: Generate Debug Keystore
+        run: |
+          keytool -genkeypair \
+            -keystore debug.keystore \
+            -storepass android \
+            -alias androiddebugkey \
+            -keypass android \
+            -keyalg RSA \
+            -keysize 2048 \
+            -validity 10000 \
+            -dname "CN=Android Debug,O=Android,C=US"
+
+
       - name: Build Debug APK
         run: gradle assembleDebug
 
 
-      # Recherche de l'APK généré
       - name: Find generated APK
         run: |
-          find . -type f -name "*.apk"
+          echo "=== GENERATED APK ==="
+          find app/build -type f -name "*.apk"
 
 
-      # Upload APK
       - name: Upload APK artifact
         uses: actions/upload-artifact@v4
         with:
