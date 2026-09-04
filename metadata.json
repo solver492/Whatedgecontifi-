@@ -1,0 +1,6 @@
+{
+  "name": "AI Edge WhatsApp",
+  "description": "Multi-Instance WhatsApp platform powered by Baileys & on-device AI Edge Quantizer models. Autonomous local agents with Supabase/RAG, MCP tools, and Webhooks.",
+  "requestFramePermissions": [],
+  "majorCapabilities": ["MAJOR_CAPABILITY_SERVER_SIDE_GEMINI_API"]
+}
