@@ -61,24 +61,44 @@ class LocalNodeBridgeServer(
         _serverPort.value = port
 
         serverJob = scope.launch {
-            try {
-                serverSocket = ServerSocket(port)
-                _isRunning.value = true
-                log(LogType.SUCCESS, "Serveur HTTP Bridge démarré sur http://127.0.0.1:$port (Port écoute Baileys)")
+            var boundSocket: ServerSocket? = null
+            var activePort = port
 
-                while (_isRunning.value && serverSocket != null && !serverSocket!!.isClosed) {
-                    try {
-                        val clientSocket = serverSocket!!.accept()
-                        scope.launch {
-                            handleClientSocket(clientSocket)
-                        }
-                    } catch (e: Exception) {
-                        if (!_isRunning.value) break
-                    }
-                }
+            try {
+                boundSocket = ServerSocket(activePort)
             } catch (e: Exception) {
-                log(LogType.ERROR, "Erreur démarrage serveur sur le port $port : ${e.localizedMessage}")
-                _isRunning.value = false
+                // If port 8080 is in use, fallback to 8081
+                if (activePort == 8080) {
+                    try {
+                        activePort = 8081
+                        boundSocket = ServerSocket(activePort)
+                        log(LogType.INFO, "Port 8080 occupé, basculement automatique sur le port 8081.")
+                    } catch (e2: Exception) {
+                        log(LogType.ERROR, "Erreur démarrage serveur sur les ports 8080 et 8081 : ${e2.localizedMessage}")
+                        _isRunning.value = false
+                        return@launch
+                    }
+                } else {
+                    log(LogType.ERROR, "Erreur démarrage serveur sur le port $port : ${e.localizedMessage}")
+                    _isRunning.value = false
+                    return@launch
+                }
+            }
+
+            serverSocket = boundSocket
+            _serverPort.value = activePort
+            _isRunning.value = true
+            log(LogType.SUCCESS, "Serveur HTTP Bridge démarré sur http://127.0.0.1:$activePort (Écoute Baileys)")
+
+            while (_isRunning.value && serverSocket != null && !serverSocket!!.isClosed) {
+                try {
+                    val clientSocket = serverSocket!!.accept()
+                    scope.launch {
+                        handleClientSocket(clientSocket)
+                    }
+                } catch (e: Exception) {
+                    if (!_isRunning.value) break
+                }
             }
         }
     }
@@ -153,8 +173,8 @@ class LocalNodeBridgeServer(
                     sendHttpResponse(output, 200, "OK", "application/json", res.toString())
                 }
 
-                // 2. GET /bridge.js (Serve Node.js script directly to Termux)
-                path.startsWith("/bridge.js") && method.equals("GET", ignoreCase = true) -> {
+                // 2. GET /bridge.js or /server.js (Serve Node.js script directly to Termux)
+                (path.startsWith("/bridge.js") || path.startsWith("/server.js")) && method.equals("GET", ignoreCase = true) -> {
                     sendHttpResponse(output, 200, "OK", "application/javascript; charset=utf-8", NodeJsBridgeScript.SCRIPT_CONTENT)
                 }
 
@@ -162,12 +182,17 @@ class LocalNodeBridgeServer(
                 path.startsWith("/api/message") && method.equals("POST", ignoreCase = true) -> {
                     try {
                         val json = JSONObject(bodyStr)
-                        val instanceId = json.optString("instanceId", "default")
+                        val rawInstanceId = json.optString("instanceId", "default")
+                        val instanceId = resolveTargetInstanceId(rawInstanceId)
                         val remoteJid = json.optString("remoteJid", "unknown@s.whatsapp.net")
                         val senderName = json.optString("senderName", "Client WhatsApp")
                         val text = json.optString("text", "")
 
                         log(LogType.INCOMING, "[$instanceId] De: $senderName ($remoteJid) -> '$text'")
+
+                        // Record message activity on instance
+                        val waDao = database.whatsAppDao()
+                        waDao.recordIncomingMessage(instanceId)
 
                         // Process message through BaileysService & AI Edge Engine
                         val reply = baileysService.handleIncomingMessage(
@@ -196,11 +221,12 @@ class LocalNodeBridgeServer(
                     }
                 }
 
-                // 3. POST /api/event (Baileys connection event: QR code, pairing code, connected)
+                // 4. POST /api/event (Baileys connection event: QR code, pairing code, connected)
                 path.startsWith("/api/event") && method.equals("POST", ignoreCase = true) -> {
                     try {
                         val json = JSONObject(bodyStr)
-                        val instanceId = json.optString("instanceId", "")
+                        val rawInstanceId = json.optString("instanceId", "")
+                        val instanceId = resolveTargetInstanceId(rawInstanceId)
                         val eventType = json.optString("event", "connection.update")
                         val status = json.optString("status", "")
                         val qr = json.optString("qr", "")
@@ -274,5 +300,39 @@ class LocalNodeBridgeServer(
         output.write(responseHeaders.toByteArray(Charsets.UTF_8))
         output.write(bodyBytes)
         output.flush()
+    }
+
+    private suspend fun resolveTargetInstanceId(rawInstanceId: String): String {
+        try {
+            val waDao = database.whatsAppDao()
+            val all = waDao.getAllInstancesList()
+            if (all.isEmpty()) return rawInstanceId
+
+            // 1. Direct ID match
+            val direct = all.firstOrNull { it.id == rawInstanceId }
+            if (direct != null) return direct.id
+
+            // 2. Name or phone match
+            val byNameOrPhone = all.firstOrNull {
+                it.name.equals(rawInstanceId, ignoreCase = true) ||
+                (rawInstanceId.isNotBlank() && it.phoneNumber.contains(rawInstanceId))
+            }
+            if (byNameOrPhone != null) return byNameOrPhone.id
+
+            // 3. If only one instance exists in the app, map to that instance!
+            if (all.size == 1) return all.first().id
+
+            // 4. Prefer currently CONNECTED instance
+            val connected = all.firstOrNull { it.status == "CONNECTED" }
+            if (connected != null) return connected.id
+
+            // 5. Prefer default instance
+            val def = all.firstOrNull { it.isDefault }
+            if (def != null) return def.id
+
+            return all.first().id
+        } catch (e: Exception) {
+            return rawInstanceId
+        }
     }
 }

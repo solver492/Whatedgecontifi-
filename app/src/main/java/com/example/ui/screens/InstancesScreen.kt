@@ -22,6 +22,7 @@ import androidx.compose.foundation.shape.CircleShape
 import androidx.compose.foundation.shape.RoundedCornerShape
 import androidx.compose.material.icons.Icons
 import androidx.compose.material.icons.filled.Add
+import androidx.compose.material.icons.filled.Chat
 import androidx.compose.material.icons.filled.CheckCircle
 import androidx.compose.material.icons.filled.ContentCopy
 import androidx.compose.material.icons.filled.Delete
@@ -41,10 +42,15 @@ import androidx.compose.material3.Button
 import androidx.compose.material3.ButtonDefaults
 import androidx.compose.material3.Card
 import androidx.compose.material3.CardDefaults
+import androidx.compose.material3.DropdownMenuItem
+import androidx.compose.material3.ExperimentalMaterial3Api
+import androidx.compose.material3.ExposedDropdownMenuBox
+import androidx.compose.material3.ExposedDropdownMenuDefaults
 import androidx.compose.material3.FloatingActionButton
 import androidx.compose.material3.Icon
 import androidx.compose.material3.IconButton
 import androidx.compose.material3.MaterialTheme
+import androidx.compose.material3.MenuAnchorType
 import androidx.compose.material3.OutlinedButton
 import androidx.compose.material3.OutlinedTextField
 import androidx.compose.material3.PrimaryTabRow
@@ -72,11 +78,14 @@ import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.ui.text.style.TextOverflow
 import androidx.compose.ui.unit.dp
 import androidx.compose.ui.unit.sp
+import com.example.data.local.entity.AgentEntity
 import com.example.data.local.entity.WhatsAppInstanceEntity
 import com.example.domain.baileys.LogType
 import com.example.domain.baileys.NodeJsBridgeScript
 import com.example.domain.baileys.QrCodeGenerator
+import com.example.domain.engine.EdgeModelCatalogItem
 import com.example.ui.MainViewModel
+import com.example.ui.SelectableModelOption
 import com.example.ui.theme.EdgeAiCyan
 import com.example.ui.theme.ElegantDarkBg
 import com.example.ui.theme.ElegantDarkBorder
@@ -107,6 +116,10 @@ fun InstancesScreen(
     var showCreateDialog by remember { mutableStateOf(false) }
     var activeQrInstance by remember { mutableStateOf<WhatsAppInstanceEntity?>(null) }
     var activePairingCodeInstance by remember { mutableStateOf<WhatsAppInstanceEntity?>(null) }
+    var bindingInstance by remember { mutableStateOf<WhatsAppInstanceEntity?>(null) }
+
+    val agents by viewModel.agents.collectAsState()
+    val selectableModels by viewModel.allSelectableModels.collectAsState()
 
     val isBridgeRunning by viewModel.bridgeRunning.collectAsState()
     val bridgePort by viewModel.bridgePort.collectAsState()
@@ -293,14 +306,17 @@ fun InstancesScreen(
                         }
                     } else {
                         items(instances, key = { it.id }) { instance ->
+                            val assignedAgent = agents.firstOrNull { it.assignedInstanceIdsCsv == instance.id || it.assignedInstanceIdsCsv == "*" }
                             InstanceCard(
                                 instance = instance,
+                                assignedAgent = assignedAgent,
                                 onStart = { viewModel.startInstance(instance) },
                                 onDisconnect = { viewModel.disconnectInstance(instance.id) },
                                 onDelete = { viewModel.deleteInstance(instance.id) },
                                 onShowQr = { activeQrInstance = instance },
                                 onShowPairing = { activePairingCodeInstance = instance },
-                                onOpenSimulator = { onOpenSimulatorForInstance(instance.id) }
+                                onOpenSimulator = { onOpenSimulatorForInstance(instance.id) },
+                                onOpenBindDialog = { bindingInstance = instance }
                             )
                         }
                     }
@@ -446,6 +462,20 @@ fun InstancesScreen(
             onConfirmConnected = {
                 viewModel.confirmConnection(instance.id)
                 activePairingCodeInstance = null
+            }
+        )
+    }
+
+    // Bind Agent & Model Dialog
+    bindingInstance?.let { instance ->
+        BindAgentAndModelDialog(
+            instance = instance,
+            agents = agents,
+            models = selectableModels,
+            onDismiss = { bindingInstance = null },
+            onSave = { agentId, modelId ->
+                viewModel.bindAgentAndModelToInstance(instance.id, agentId, modelId)
+                bindingInstance = null
             }
         )
     }
@@ -917,12 +947,14 @@ fun RealQrCodeDialog(
 @Composable
 fun InstanceCard(
     instance: WhatsAppInstanceEntity,
+    assignedAgent: AgentEntity?,
     onStart: () -> Unit,
     onDisconnect: () -> Unit,
     onDelete: () -> Unit,
     onShowQr: () -> Unit,
     onShowPairing: () -> Unit,
-    onOpenSimulator: () -> Unit
+    onOpenSimulator: () -> Unit,
+    onOpenBindDialog: () -> Unit
 ) {
     val isConnected = instance.status == "CONNECTED"
     val isQrReady = instance.status == "QR_READY"
@@ -945,12 +977,13 @@ fun InstanceCard(
         border = BorderStroke(1.dp, ElegantDarkBorder)
     ) {
         Column(modifier = Modifier.padding(16.dp)) {
+            // Header: Status dot + name and Status pill
             Row(
                 modifier = Modifier.fillMaxWidth(),
                 verticalAlignment = Alignment.CenterVertically,
                 horizontalArrangement = Arrangement.SpaceBetween
             ) {
-                Row(verticalAlignment = Alignment.CenterVertically) {
+                Row(verticalAlignment = Alignment.CenterVertically, modifier = Modifier.weight(1f)) {
                     Box(
                         modifier = Modifier
                             .size(10.dp)
@@ -962,7 +995,9 @@ fun InstanceCard(
                         text = instance.name,
                         style = MaterialTheme.typography.titleMedium,
                         fontWeight = FontWeight.Bold,
-                        color = ElegantTextPrimary
+                        color = ElegantTextPrimary,
+                        maxLines = 1,
+                        overflow = TextOverflow.Ellipsis
                     )
                 }
 
@@ -976,21 +1011,95 @@ fun InstanceCard(
                         modifier = Modifier.padding(horizontal = 8.dp, vertical = 4.dp),
                         style = MaterialTheme.typography.labelSmall,
                         fontWeight = FontWeight.Bold,
-                        color = statusColor
+                        color = statusColor,
+                        maxLines = 1,
+                        softWrap = false
                     )
                 }
             }
 
-            Spacer(modifier = Modifier.height(8.dp))
+            Spacer(modifier = Modifier.height(6.dp))
 
             Text(
-                text = "Numéro : ${instance.phoneNumber} • Méthode : ${instance.pairingMethod}",
+                text = "Numéro : ${instance.phoneNumber} • Méthode : ${instance.pairingMethod} • Port : ${instance.localPort}",
                 style = MaterialTheme.typography.bodySmall,
-                color = ElegantTextSecondary
+                color = ElegantTextSecondary,
+                maxLines = 1,
+                overflow = TextOverflow.Ellipsis
             )
 
-            Spacer(modifier = Modifier.height(14.dp))
+            Spacer(modifier = Modifier.height(10.dp))
 
+            // AI Model & Agent Binding Banner
+            Surface(
+                modifier = Modifier
+                    .fillMaxWidth()
+                    .clickable { onOpenBindDialog() },
+                shape = RoundedCornerShape(14.dp),
+                color = ElegantDarkBg,
+                border = BorderStroke(1.dp, if (assignedAgent != null) ElegantPurpleAccent.copy(alpha = 0.5f) else ElegantDarkBorder)
+            ) {
+                Row(
+                    modifier = Modifier.padding(12.dp),
+                    verticalAlignment = Alignment.CenterVertically,
+                    horizontalArrangement = Arrangement.SpaceBetween
+                ) {
+                    Row(verticalAlignment = Alignment.CenterVertically, modifier = Modifier.weight(1f)) {
+                        Box(
+                            modifier = Modifier
+                                .size(34.dp)
+                                .clip(CircleShape)
+                                .background(if (assignedAgent != null) ElegantPurpleAccent.copy(alpha = 0.2f) else ElegantDarkSurfaceVariant),
+                            contentAlignment = Alignment.Center
+                        ) {
+                            Icon(
+                                imageVector = Icons.Default.SmartToy,
+                                contentDescription = null,
+                                tint = if (assignedAgent != null) ElegantPurpleAccent else ElegantTextSecondary,
+                                modifier = Modifier.size(18.dp)
+                            )
+                        }
+                        Spacer(modifier = Modifier.width(10.dp))
+                        Column {
+                            Text(
+                                text = if (assignedAgent != null) "Agent IA : ${assignedAgent.name}" else "Aucun agent IA branché",
+                                style = MaterialTheme.typography.bodySmall,
+                                fontWeight = FontWeight.Bold,
+                                color = if (assignedAgent != null) ElegantTextPrimary else ElegantTextSecondary,
+                                maxLines = 1,
+                                overflow = TextOverflow.Ellipsis
+                            )
+                            Text(
+                                text = if (assignedAgent != null) "Modèle : ${assignedAgent.modelId}" else "Touchez pour brancher un modèle IA",
+                                style = MaterialTheme.typography.labelSmall,
+                                color = if (assignedAgent != null) EdgeAiCyan else ElegantPurpleSecondary,
+                                maxLines = 1,
+                                overflow = TextOverflow.Ellipsis
+                            )
+                        }
+                    }
+
+                    Surface(
+                        shape = RoundedCornerShape(8.dp),
+                        color = ElegantPurpleAccent.copy(alpha = 0.15f),
+                        border = BorderStroke(1.dp, ElegantPurpleAccent.copy(alpha = 0.4f))
+                    ) {
+                        Text(
+                            text = if (assignedAgent != null) "Modifier" else "Brancher",
+                            modifier = Modifier.padding(horizontal = 8.dp, vertical = 4.dp),
+                            style = MaterialTheme.typography.labelSmall,
+                            fontWeight = FontWeight.Bold,
+                            color = ElegantPurpleAccent,
+                            maxLines = 1,
+                            softWrap = false
+                        )
+                    }
+                }
+            }
+
+            Spacer(modifier = Modifier.height(12.dp))
+
+            // Action Row 1: Primary actions (Start/Disconnect and Open Threads)
             Row(
                 modifier = Modifier.fillMaxWidth(),
                 horizontalArrangement = Arrangement.spacedBy(8.dp)
@@ -1004,7 +1113,7 @@ fun InstanceCard(
                     ) {
                         Icon(Icons.Default.PlayArrow, contentDescription = null, modifier = Modifier.size(18.dp))
                         Spacer(modifier = Modifier.width(6.dp))
-                        Text("Démarrer", fontWeight = FontWeight.Bold)
+                        Text("Démarrer", fontWeight = FontWeight.Bold, maxLines = 1, softWrap = false)
                     }
                 } else {
                     OutlinedButton(
@@ -1015,8 +1124,38 @@ fun InstanceCard(
                     ) {
                         Icon(Icons.Default.Stop, contentDescription = null, tint = ElegantRedAlert, modifier = Modifier.size(18.dp))
                         Spacer(modifier = Modifier.width(6.dp))
-                        Text("Déconnecter", color = ElegantRedAlert)
+                        Text("Déconnecter", color = ElegantRedAlert, maxLines = 1, softWrap = false)
                     }
+                }
+
+                Button(
+                    onClick = onOpenSimulator,
+                    modifier = Modifier.weight(1f),
+                    shape = RoundedCornerShape(12.dp),
+                    colors = ButtonDefaults.buttonColors(containerColor = WhatsAppGreen, contentColor = Color.White)
+                ) {
+                    Icon(Icons.Default.Chat, contentDescription = null, modifier = Modifier.size(18.dp))
+                    Spacer(modifier = Modifier.width(6.dp))
+                    Text("Threads WhatsApp", fontWeight = FontWeight.Bold, fontSize = 12.sp, maxLines = 1, softWrap = false)
+                }
+            }
+
+            Spacer(modifier = Modifier.height(8.dp))
+
+            // Action Row 2: Secondary actions (Brancher IA, QR Code, Code, Delete)
+            Row(
+                modifier = Modifier.fillMaxWidth(),
+                horizontalArrangement = Arrangement.spacedBy(8.dp)
+            ) {
+                OutlinedButton(
+                    onClick = onOpenBindDialog,
+                    modifier = Modifier.weight(1f),
+                    shape = RoundedCornerShape(12.dp),
+                    border = BorderStroke(1.dp, ElegantPurpleAccent.copy(alpha = 0.5f))
+                ) {
+                    Icon(Icons.Default.Link, contentDescription = null, tint = ElegantPurpleAccent, modifier = Modifier.size(16.dp))
+                    Spacer(modifier = Modifier.width(4.dp))
+                    Text("Brancher IA", color = ElegantPurpleAccent, fontSize = 11.sp, fontWeight = FontWeight.SemiBold, maxLines = 1, softWrap = false)
                 }
 
                 if (isQrReady || (!isConnected && instance.pairingMethod == "QR_CODE")) {
@@ -1035,7 +1174,7 @@ fun InstanceCard(
                         shape = RoundedCornerShape(12.dp),
                         border = BorderStroke(1.dp, ElegantPurpleAccent.copy(alpha = 0.6f))
                     ) {
-                        Text("Code", color = ElegantPurpleAccent, fontWeight = FontWeight.Bold)
+                        Text("Code", color = ElegantPurpleAccent, fontWeight = FontWeight.Bold, maxLines = 1, softWrap = false)
                     }
                 }
 
@@ -1049,6 +1188,175 @@ fun InstanceCard(
             }
         }
     }
+}
+
+@OptIn(ExperimentalMaterial3Api::class)
+@Composable
+fun BindAgentAndModelDialog(
+    instance: WhatsAppInstanceEntity,
+    agents: List<AgentEntity>,
+    models: List<SelectableModelOption>,
+    onDismiss: () -> Unit,
+    onSave: (agentId: String, modelId: String) -> Unit
+) {
+    var selectedAgentId by remember {
+        mutableStateOf(
+            agents.firstOrNull { it.assignedInstanceIdsCsv == instance.id || it.assignedInstanceIdsCsv == "*" }?.id
+                ?: agents.firstOrNull()?.id
+                ?: ""
+        )
+    }
+    val currentAgent = agents.firstOrNull { it.id == selectedAgentId }
+    var selectedModelId by remember {
+        mutableStateOf(
+            currentAgent?.modelId ?: models.firstOrNull()?.id ?: "gemma-2-2b-it-int4"
+        )
+    }
+
+    var expandedAgentDropdown by remember { mutableStateOf(false) }
+    var expandedModelDropdown by remember { mutableStateOf(false) }
+
+    AlertDialog(
+        onDismissRequest = onDismiss,
+        shape = RoundedCornerShape(24.dp),
+        containerColor = ElegantDarkSurface,
+        title = {
+            Row(verticalAlignment = Alignment.CenterVertically) {
+                Icon(Icons.Default.SmartToy, contentDescription = null, tint = ElegantPurpleAccent)
+                Spacer(modifier = Modifier.width(10.dp))
+                Text("Brancher IA sur ${instance.name}", fontWeight = FontWeight.Bold, color = ElegantTextPrimary, fontSize = 18.sp)
+            }
+        },
+        text = {
+            Column(verticalArrangement = Arrangement.spacedBy(14.dp)) {
+                Text(
+                    text = "Choisissez quel agent et quel modèle d'IA exécuter automatiquement lorsqu'un message WhatsApp arrive sur cette instance.",
+                    style = MaterialTheme.typography.bodySmall,
+                    color = ElegantTextSecondary
+                )
+
+                // Agent selector
+                Text("1. Sélectionner l'Agent IA :", style = MaterialTheme.typography.labelMedium, fontWeight = FontWeight.Bold, color = ElegantTextPrimary)
+                ExposedDropdownMenuBox(
+                    expanded = expandedAgentDropdown,
+                    onExpandedChange = { expandedAgentDropdown = it },
+                    modifier = Modifier.fillMaxWidth()
+                ) {
+                    OutlinedTextField(
+                        value = agents.firstOrNull { it.id == selectedAgentId }?.name ?: "Sélectionner un agent",
+                        onValueChange = {},
+                        readOnly = true,
+                        trailingIcon = { ExposedDropdownMenuDefaults.TrailingIcon(expanded = expandedAgentDropdown) },
+                        shape = RoundedCornerShape(12.dp),
+                        modifier = Modifier
+                            .fillMaxWidth()
+                            .menuAnchor(MenuAnchorType.PrimaryNotEditable)
+                    )
+                    ExposedDropdownMenu(
+                        expanded = expandedAgentDropdown,
+                        onDismissRequest = { expandedAgentDropdown = false },
+                        modifier = Modifier.background(ElegantDarkSurface)
+                    ) {
+                        agents.forEach { agent ->
+                            DropdownMenuItem(
+                                text = {
+                                    Column {
+                                        Text(agent.name, fontWeight = FontWeight.Bold, color = ElegantTextPrimary)
+                                        Text("${agent.role} • ${agent.modelId}", fontSize = 11.sp, color = ElegantPurpleSecondary)
+                                    }
+                                },
+                                onClick = {
+                                    selectedAgentId = agent.id
+                                    selectedModelId = agent.modelId
+                                    expandedAgentDropdown = false
+                                }
+                            )
+                        }
+                    }
+                }
+
+                // Model selector
+                Text("2. Sélectionner le Modèle Local :", style = MaterialTheme.typography.labelMedium, fontWeight = FontWeight.Bold, color = ElegantTextPrimary)
+                ExposedDropdownMenuBox(
+                    expanded = expandedModelDropdown,
+                    onExpandedChange = { expandedModelDropdown = it },
+                    modifier = Modifier.fillMaxWidth()
+                ) {
+                    val currentModelName = models.firstOrNull { it.id == selectedModelId }?.name ?: selectedModelId
+                    OutlinedTextField(
+                        value = currentModelName,
+                        onValueChange = {},
+                        readOnly = true,
+                        trailingIcon = { ExposedDropdownMenuDefaults.TrailingIcon(expanded = expandedModelDropdown) },
+                        shape = RoundedCornerShape(12.dp),
+                        modifier = Modifier
+                            .fillMaxWidth()
+                            .menuAnchor(MenuAnchorType.PrimaryNotEditable)
+                    )
+                    ExposedDropdownMenu(
+                        expanded = expandedModelDropdown,
+                        onDismissRequest = { expandedModelDropdown = false },
+                        modifier = Modifier.background(ElegantDarkSurface)
+                    ) {
+                        models.forEach { model ->
+                            DropdownMenuItem(
+                                text = {
+                                    Column {
+                                        Text(model.name, fontWeight = FontWeight.Bold, color = ElegantTextPrimary)
+                                        Text(model.details, fontSize = 11.sp, color = EdgeAiCyan)
+                                    }
+                                },
+                                onClick = {
+                                    selectedModelId = model.id
+                                    expandedModelDropdown = false
+                                }
+                            )
+                        }
+                    }
+                }
+
+                Surface(
+                    shape = RoundedCornerShape(10.dp),
+                    color = ElegantDarkBg,
+                    border = BorderStroke(1.dp, ElegantDarkBorder),
+                    modifier = Modifier.fillMaxWidth()
+                ) {
+                    Column(modifier = Modifier.padding(10.dp)) {
+                        Text(
+                            text = "⚡ Exécution Locale :",
+                            style = MaterialTheme.typography.labelSmall,
+                            fontWeight = FontWeight.Bold,
+                            color = ElegantGreenActive
+                        )
+                        Text(
+                            text = "Dès qu'un client vous écrit sur WhatsApp, Baileys transmet le message à l'application. L'agent répondra en quelques millisecondes avec le modèle sélectionné.",
+                            style = MaterialTheme.typography.labelSmall,
+                            color = ElegantTextSecondary,
+                            fontSize = 10.sp
+                        )
+                    }
+                }
+            }
+        },
+        confirmButton = {
+            Button(
+                onClick = {
+                    if (selectedAgentId.isNotBlank()) {
+                        onSave(selectedAgentId, selectedModelId)
+                    }
+                },
+                shape = RoundedCornerShape(12.dp),
+                colors = ButtonDefaults.buttonColors(containerColor = ElegantPurpleAccent, contentColor = ElegantPurpleOnAccent)
+            ) {
+                Text("Enregistrer la Liaison", fontWeight = FontWeight.Bold)
+            }
+        },
+        dismissButton = {
+            TextButton(onClick = onDismiss) {
+                Text("Annuler", color = ElegantTextSecondary)
+            }
+        }
+    )
 }
 
 @Composable

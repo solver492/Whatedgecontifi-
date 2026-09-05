@@ -26,14 +26,23 @@ import androidx.compose.material.icons.Icons
 import androidx.compose.material.icons.automirrored.filled.Send
 import androidx.compose.material.icons.filled.Add
 import androidx.compose.material.icons.filled.Build
+import androidx.compose.material.icons.filled.ChatBubbleOutline
 import androidx.compose.material.icons.filled.CheckCircle
 import androidx.compose.material.icons.filled.Circle
 import androidx.compose.material.icons.filled.Code
+import androidx.compose.material.icons.filled.ContentCopy
 import androidx.compose.material.icons.filled.Delete
+import androidx.compose.material.icons.filled.DeleteSweep
+import androidx.compose.material.icons.filled.FilterList
 import androidx.compose.material.icons.filled.FlashOn
+import androidx.compose.material.icons.filled.Link
 import androidx.compose.material.icons.filled.Person
+import androidx.compose.material.icons.filled.PlayArrow
+import androidx.compose.material.icons.filled.QuestionAnswer
+import androidx.compose.material.icons.filled.Refresh
 import androidx.compose.material.icons.filled.SmartToy
 import androidx.compose.material.icons.filled.Sync
+import androidx.compose.material.icons.filled.Terminal
 import androidx.compose.material.icons.filled.Webhook
 import androidx.compose.material3.AlertDialog
 import androidx.compose.material3.Button
@@ -49,6 +58,7 @@ import androidx.compose.material3.Icon
 import androidx.compose.material3.IconButton
 import androidx.compose.material3.MaterialTheme
 import androidx.compose.material3.MenuAnchorType
+import androidx.compose.material3.OutlinedButton
 import androidx.compose.material3.OutlinedTextField
 import androidx.compose.material3.Surface
 import androidx.compose.material3.Switch
@@ -70,17 +80,25 @@ import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.draw.clip
 import androidx.compose.ui.graphics.Color
+import androidx.compose.ui.platform.LocalClipboardManager
 import androidx.compose.ui.platform.testTag
+import androidx.compose.ui.text.AnnotatedString
 import androidx.compose.ui.text.font.FontFamily
 import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.ui.text.style.TextOverflow
 import androidx.compose.ui.unit.dp
 import androidx.compose.ui.unit.sp
+import com.example.data.local.entity.AgentEntity
 import com.example.data.local.entity.McpToolEntity
 import com.example.data.local.entity.WebhookConfigEntity
 import com.example.data.local.entity.WhatsAppInstanceEntity
 import com.example.data.local.entity.WhatsAppMessageEntity
+import com.example.domain.baileys.NodeJsBridgeScript
+import com.example.domain.engine.EdgeModelCatalogItem
 import com.example.ui.MainViewModel
+import java.text.SimpleDateFormat
+import java.util.Date
+import java.util.Locale
 import com.example.ui.theme.EdgeAiCyan
 import com.example.ui.theme.ElegantDarkBg
 import com.example.ui.theme.ElegantDarkBorder
@@ -93,6 +111,7 @@ import com.example.ui.theme.ElegantPinkTertiary
 import com.example.ui.theme.ElegantPurpleAccent
 import com.example.ui.theme.ElegantPurpleOnAccent
 import com.example.ui.theme.ElegantPurpleSecondary
+import com.example.ui.theme.ElegantRedAlert
 import com.example.ui.theme.ElegantTextMuted
 import com.example.ui.theme.ElegantTextPrimary
 import com.example.ui.theme.ElegantTextSecondary
@@ -128,9 +147,11 @@ fun McpAndSimulatorScreen(
                 onClick = { selectedSubTab = 0 },
                 text = {
                     Text(
-                        "Simulateur Chat WhatsApp",
+                        "Messages Reçus & Threads",
                         fontWeight = if (selectedSubTab == 0) FontWeight.Bold else FontWeight.Normal,
-                        color = if (selectedSubTab == 0) ElegantPurpleAccent else ElegantTextSecondary
+                        color = if (selectedSubTab == 0) ElegantPurpleAccent else ElegantTextSecondary,
+                        maxLines = 1,
+                        softWrap = false
                     )
                 }
             )
@@ -141,7 +162,9 @@ fun McpAndSimulatorScreen(
                     Text(
                         "Outils MCP & Webhooks",
                         fontWeight = if (selectedSubTab == 1) FontWeight.Bold else FontWeight.Normal,
-                        color = if (selectedSubTab == 1) ElegantPurpleAccent else ElegantTextSecondary
+                        color = if (selectedSubTab == 1) ElegantPurpleAccent else ElegantTextSecondary,
+                        maxLines = 1,
+                        softWrap = false
                     )
                 }
             )
@@ -163,6 +186,15 @@ fun McpAndSimulatorScreen(
     }
 }
 
+data class ContactThreadSummary(
+    val remoteJid: String,
+    val contactName: String,
+    val messageCount: Int,
+    val lastMessage: String,
+    val lastTimestamp: Long,
+    val lastSender: String
+)
+
 @OptIn(ExperimentalMaterial3Api::class, ExperimentalLayoutApi::class)
 @Composable
 fun LiveChatSimulator(
@@ -173,197 +205,812 @@ fun LiveChatSimulator(
 ) {
     val selectedInstanceId by viewModel.selectedInstanceId.collectAsState()
     val isSimulating by viewModel.isSimulatingReply.collectAsState()
+    val agents by viewModel.agents.collectAsState()
+    val selectableModels by viewModel.allSelectableModels.collectAsState()
+
+    val clipboardManager = LocalClipboardManager.current
+    val timeFormat = remember { SimpleDateFormat("HH:mm", Locale.getDefault()) }
 
     var activeInstanceId by remember {
         mutableStateOf(
             initialInstanceId
                 ?: selectedInstanceId
-                ?: instances.firstOrNull()?.id
-                ?: ""
+                ?: "ALL"
         )
     }
 
+    var selectedContactJid by remember { mutableStateOf<String?>(null) }
+    var subViewMode by remember { mutableIntStateOf(0) } // 0 = Chat Stream, 1 = Fils WhatsApp
     var expandedInstanceMenu by remember { mutableStateOf(false) }
     var inputMessageText by remember { mutableStateOf("") }
     var customerPhone by remember { mutableStateOf("+33 6 98 76 54 32") }
     var customerName by remember { mutableStateOf("Client WhatsApp") }
+    var sendAsCustomer by remember { mutableStateOf(true) }
+    var showClearConfirmation by remember { mutableStateOf(false) }
+    var showBindDialog by remember { mutableStateOf(false) }
+    var feedbackToast by remember { mutableStateOf<String?>(null) }
 
-    val currentInstance = instances.firstOrNull { it.id == activeInstanceId } ?: instances.firstOrNull()
-    val filteredMessages = messages.filter { it.instanceId == (currentInstance?.id ?: "") }
+    val currentInstance = instances.firstOrNull { it.id == activeInstanceId }
+    val assignedAgent = currentInstance?.let { inst ->
+        agents.firstOrNull { it.assignedInstanceIdsCsv == inst.id || it.assignedInstanceIdsCsv == "*" }
+    } ?: agents.firstOrNull { it.isActive } ?: agents.firstOrNull()
+
+    // Filter messages: "ALL" shows all messages across all instances
+    val baseFilteredMessages = remember(messages, activeInstanceId) {
+        if (activeInstanceId == "ALL" || activeInstanceId.isBlank()) {
+            messages
+        } else {
+            messages.filter { it.instanceId == activeInstanceId }
+        }
+    }
+
+    val filteredMessages = remember(baseFilteredMessages, selectedContactJid) {
+        if (selectedContactJid == null) {
+            baseFilteredMessages
+        } else {
+            baseFilteredMessages.filter { it.remoteJid == selectedContactJid }
+        }
+    }
+
+    // Group distinct contacts
+    val contactThreads = remember(messages) {
+        messages.groupBy { it.remoteJid }.map { (jid, msgList) ->
+            val lastMsg = msgList.maxByOrNull { it.timestamp }
+            val customerNameFound = msgList.firstOrNull { it.isFromCustomer && it.senderName.isNotBlank() }?.senderName
+                ?: jid.substringBefore("@")
+            ContactThreadSummary(
+                remoteJid = jid,
+                contactName = customerNameFound,
+                messageCount = msgList.size,
+                lastMessage = lastMsg?.content ?: "",
+                lastTimestamp = lastMsg?.timestamp ?: 0L,
+                lastSender = lastMsg?.senderName ?: ""
+            )
+        }.sortedByDescending { it.lastTimestamp }
+    }
 
     Column(
         modifier = Modifier
             .fillMaxSize()
             .padding(horizontal = 16.dp)
     ) {
-        Spacer(modifier = Modifier.height(12.dp))
+        Spacer(modifier = Modifier.height(10.dp))
 
-        // Top instance picker selector
-        ExposedDropdownMenuBox(
-            expanded = expandedInstanceMenu,
-            onExpandedChange = { expandedInstanceMenu = it },
-            modifier = Modifier.fillMaxWidth()
+        // Top Row: Instance selector dropdown & clear button
+        Row(
+            modifier = Modifier.fillMaxWidth(),
+            verticalAlignment = Alignment.CenterVertically,
+            horizontalArrangement = Arrangement.spacedBy(8.dp)
         ) {
-            OutlinedTextField(
-                value = currentInstance?.let { "${it.name} (${it.phoneNumber})" } ?: "Aucune instance",
-                onValueChange = {},
-                readOnly = true,
-                label = { Text("Canal / Instance WhatsApp de test") },
-                shape = RoundedCornerShape(16.dp),
-                trailingIcon = { ExposedDropdownMenuDefaults.TrailingIcon(expanded = expandedInstanceMenu) },
-                modifier = Modifier
-                    .fillMaxWidth()
-                    .menuAnchor(MenuAnchorType.PrimaryNotEditable)
-            )
-
-            ExposedDropdownMenu(
+            ExposedDropdownMenuBox(
                 expanded = expandedInstanceMenu,
-                onDismissRequest = { expandedInstanceMenu = false }
+                onExpandedChange = { expandedInstanceMenu = it },
+                modifier = Modifier.weight(1f)
             ) {
-                instances.forEach { inst ->
+                OutlinedTextField(
+                    value = if (activeInstanceId == "ALL" || currentInstance == null) {
+                        "🌐 Toutes les instances (${messages.size} msgs)"
+                    } else {
+                        "${currentInstance.name} (${currentInstance.phoneNumber})"
+                    },
+                    onValueChange = {},
+                    readOnly = true,
+                    label = { Text("Filtrer l'instance WhatsApp") },
+                    shape = RoundedCornerShape(16.dp),
+                    trailingIcon = { ExposedDropdownMenuDefaults.TrailingIcon(expanded = expandedInstanceMenu) },
+                    modifier = Modifier
+                        .fillMaxWidth()
+                        .menuAnchor(MenuAnchorType.PrimaryNotEditable)
+                )
+
+                ExposedDropdownMenu(
+                    expanded = expandedInstanceMenu,
+                    onDismissRequest = { expandedInstanceMenu = false },
+                    modifier = Modifier.background(ElegantDarkSurface)
+                ) {
                     DropdownMenuItem(
-                        text = { Text("${inst.name} - ${inst.phoneNumber} (${inst.status})", color = ElegantTextPrimary) },
+                        text = {
+                            Text(
+                                "🌐 Toutes les instances (Tous les messages reçus)",
+                                color = ElegantPurpleAccent,
+                                fontWeight = FontWeight.Bold
+                            )
+                        },
                         onClick = {
-                            activeInstanceId = inst.id
-                            viewModel.selectInstance(inst.id)
+                            activeInstanceId = "ALL"
                             expandedInstanceMenu = false
                         }
                     )
-                }
-            }
-        }
-
-        Spacer(modifier = Modifier.height(10.dp))
-
-        // Quick prompts suggestions
-        Text("Suggestions de messages clients :", style = MaterialTheme.typography.labelSmall, color = ElegantPurpleSecondary)
-        FlowRow(
-            horizontalArrangement = Arrangement.spacedBy(8.dp),
-            verticalArrangement = Arrangement.spacedBy(6.dp),
-            modifier = Modifier.padding(vertical = 6.dp)
-        ) {
-            val suggestions = listOf(
-                "Prix du pack Pro ?",
-                "Suivi commande #CMD-9201",
-                "Parler à un humain",
-                "Horaires d'ouverture ?",
-                "Prendre rendez-vous"
-            )
-            suggestions.forEach { prompt ->
-                Surface(
-                    shape = RoundedCornerShape(14.dp),
-                    color = ElegantDarkSurfaceVariant,
-                    border = BorderStroke(1.dp, ElegantDarkBorder),
-                    modifier = Modifier.clickable {
-                        inputMessageText = prompt
-                    }
-                ) {
-                    Text(
-                        text = prompt,
-                        style = MaterialTheme.typography.labelSmall,
-                        color = ElegantTextPrimary,
-                        modifier = Modifier.padding(horizontal = 10.dp, vertical = 6.dp)
-                    )
-                }
-            }
-        }
-
-        // Messages list
-        LazyColumn(
-            modifier = Modifier
-                .weight(1f)
-                .fillMaxWidth()
-                .padding(vertical = 8.dp),
-            verticalArrangement = Arrangement.spacedBy(12.dp),
-            reverseLayout = false
-        ) {
-            items(filteredMessages, key = { it.id }) { msg ->
-                ChatBubble(message = msg)
-            }
-
-            if (isSimulating) {
-                item {
-                    Row(
-                        modifier = Modifier
-                            .fillMaxWidth()
-                            .padding(8.dp),
-                        verticalAlignment = Alignment.CenterVertically
-                    ) {
-                        CircularProgressIndicator(
-                            modifier = Modifier.size(18.dp),
-                            strokeWidth = 2.dp,
-                            color = ElegantPurpleAccent
-                        )
-                        Spacer(modifier = Modifier.width(10.dp))
-                        Text(
-                            text = "L'Agent Local AI Edge réfléchit et génère sa réponse...",
-                            style = MaterialTheme.typography.bodySmall,
-                            color = ElegantPurpleSecondary
+                    instances.forEach { inst ->
+                        DropdownMenuItem(
+                            text = {
+                                Row(verticalAlignment = Alignment.CenterVertically) {
+                                    Box(
+                                        modifier = Modifier
+                                            .size(8.dp)
+                                            .clip(CircleShape)
+                                            .background(if (inst.status == "CONNECTED") ElegantGreenActive else ElegantRedAlert)
+                                    )
+                                    Spacer(modifier = Modifier.width(8.dp))
+                                    Text("${inst.name} - ${inst.phoneNumber} (${inst.status})", color = ElegantTextPrimary)
+                                }
+                            },
+                            onClick = {
+                                activeInstanceId = inst.id
+                                viewModel.selectInstance(inst.id)
+                                expandedInstanceMenu = false
+                            }
                         )
                     }
                 }
             }
+
+            // Quick Clear all messages button
+            IconButton(
+                onClick = { showClearConfirmation = true },
+                modifier = Modifier
+                    .size(46.dp)
+                    .clip(RoundedCornerShape(14.dp))
+                    .background(ElegantDarkSurfaceVariant)
+                    .border(1.dp, ElegantDarkBorder, RoundedCornerShape(14.dp))
+            ) {
+                Icon(
+                    imageVector = Icons.Default.DeleteSweep,
+                    contentDescription = "Tout effacer",
+                    tint = ElegantRedAlert
+                )
+            }
         }
 
-        // Input bar
-        Card(
+        Spacer(modifier = Modifier.height(8.dp))
+
+        // AI Agent & Model Banner with direct "Brancher IA" button
+        Surface(
             modifier = Modifier
                 .fillMaxWidth()
-                .padding(bottom = 12.dp),
-            colors = CardDefaults.cardColors(containerColor = ElegantDarkSurface),
-            shape = RoundedCornerShape(24.dp),
+                .clickable {
+                    if (currentInstance != null) {
+                        showBindDialog = true
+                    } else if (instances.isNotEmpty()) {
+                        activeInstanceId = instances.first().id
+                        showBindDialog = true
+                    }
+                },
+            shape = RoundedCornerShape(14.dp),
+            color = ElegantDarkSurface,
             border = BorderStroke(1.dp, ElegantDarkBorder)
         ) {
             Row(
-                modifier = Modifier
-                    .fillMaxWidth()
-                    .padding(horizontal = 12.dp, vertical = 6.dp),
-                verticalAlignment = Alignment.CenterVertically
+                modifier = Modifier.padding(horizontal = 12.dp, vertical = 8.dp),
+                verticalAlignment = Alignment.CenterVertically,
+                horizontalArrangement = Arrangement.SpaceBetween
             ) {
-                OutlinedTextField(
-                    value = inputMessageText,
-                    onValueChange = { inputMessageText = it },
-                    placeholder = { Text("Écrire un message en tant que client...", color = ElegantTextSecondary) },
-                    modifier = Modifier
-                        .weight(1f)
-                        .testTag("simulator_chat_input"),
-                    shape = RoundedCornerShape(18.dp),
-                    maxLines = 3
-                )
-                Spacer(modifier = Modifier.width(8.dp))
-                IconButton(
-                    onClick = {
-                        if (inputMessageText.isNotBlank() && currentInstance != null) {
-                            val textToSend = inputMessageText
-                            inputMessageText = ""
-                            viewModel.simulateCustomerMessage(
-                                instanceId = currentInstance.id,
-                                senderJid = "$customerPhone@s.whatsapp.net",
-                                senderName = customerName,
-                                text = textToSend
-                            )
-                        }
-                    },
-                    modifier = Modifier
-                        .size(44.dp)
-                        .clip(CircleShape)
-                        .background(ElegantPurpleAccent)
-                        .testTag("simulator_send_button")
+                Row(verticalAlignment = Alignment.CenterVertically, modifier = Modifier.weight(1f)) {
+                    Icon(
+                        imageVector = Icons.Default.SmartToy,
+                        contentDescription = null,
+                        tint = ElegantPurpleAccent,
+                        modifier = Modifier.size(18.dp)
+                    )
+                    Spacer(modifier = Modifier.width(8.dp))
+                    Column {
+                        Text(
+                            text = "Agent Branché : ${assignedAgent?.name ?: "Conseiller Vente (Général)"}",
+                            style = MaterialTheme.typography.labelSmall,
+                            fontWeight = FontWeight.Bold,
+                            color = ElegantTextPrimary,
+                            maxLines = 1,
+                            overflow = TextOverflow.Ellipsis
+                        )
+                        Text(
+                            text = "Modèle Local : ${assignedAgent?.modelId ?: "gemma-2-2b-it-int4"} • ${filteredMessages.size} msgs capturés",
+                            style = MaterialTheme.typography.labelSmall,
+                            color = EdgeAiCyan,
+                            fontSize = 10.sp,
+                            maxLines = 1,
+                            overflow = TextOverflow.Ellipsis
+                        )
+                    }
+                }
+
+                Surface(
+                    shape = RoundedCornerShape(8.dp),
+                    color = ElegantPurpleAccent.copy(alpha = 0.15f),
+                    border = BorderStroke(1.dp, ElegantPurpleAccent.copy(alpha = 0.5f))
+                ) {
+                    Text(
+                        text = "Lier IA",
+                        modifier = Modifier.padding(horizontal = 8.dp, vertical = 4.dp),
+                        style = MaterialTheme.typography.labelSmall,
+                        fontWeight = FontWeight.Bold,
+                        color = ElegantPurpleAccent,
+                        maxLines = 1,
+                        softWrap = false
+                    )
+                }
+            }
+        }
+
+        Spacer(modifier = Modifier.height(8.dp))
+
+        // View Mode Selector Tabs: Discussion vs Fils de Contacts
+        Row(
+            modifier = Modifier.fillMaxWidth(),
+            horizontalArrangement = Arrangement.spacedBy(8.dp)
+        ) {
+            Surface(
+                shape = RoundedCornerShape(12.dp),
+                color = if (subViewMode == 0) ElegantPurpleAccent else ElegantDarkSurfaceVariant,
+                border = BorderStroke(1.dp, if (subViewMode == 0) ElegantPurpleAccent else ElegantDarkBorder),
+                modifier = Modifier
+                    .weight(1f)
+                    .clickable { subViewMode = 0 }
+            ) {
+                Row(
+                    modifier = Modifier.padding(vertical = 8.dp),
+                    horizontalArrangement = Arrangement.Center,
+                    verticalAlignment = Alignment.CenterVertically
                 ) {
                     Icon(
-                        imageVector = Icons.AutoMirrored.Filled.Send,
-                        contentDescription = "Envoyer",
-                        tint = ElegantPurpleOnAccent
+                        imageVector = Icons.Default.ChatBubbleOutline,
+                        contentDescription = null,
+                        tint = if (subViewMode == 0) ElegantPurpleOnAccent else ElegantTextSecondary,
+                        modifier = Modifier.size(16.dp)
                     )
+                    Spacer(modifier = Modifier.width(6.dp))
+                    Text(
+                        text = if (selectedContactJid != null) "Fil sélectionné" else "Discussion Active",
+                        style = MaterialTheme.typography.labelMedium,
+                        fontWeight = FontWeight.Bold,
+                        color = if (subViewMode == 0) ElegantPurpleOnAccent else ElegantTextSecondary,
+                        maxLines = 1,
+                        softWrap = false
+                    )
+                }
+            }
+
+            Surface(
+                shape = RoundedCornerShape(12.dp),
+                color = if (subViewMode == 1) ElegantPurpleAccent else ElegantDarkSurfaceVariant,
+                border = BorderStroke(1.dp, if (subViewMode == 1) ElegantPurpleAccent else ElegantDarkBorder),
+                modifier = Modifier
+                    .weight(1f)
+                    .clickable { subViewMode = 1 }
+            ) {
+                Row(
+                    modifier = Modifier.padding(vertical = 8.dp),
+                    horizontalArrangement = Arrangement.Center,
+                    verticalAlignment = Alignment.CenterVertically
+                ) {
+                    Icon(
+                        imageVector = Icons.Default.QuestionAnswer,
+                        contentDescription = null,
+                        tint = if (subViewMode == 1) ElegantPurpleOnAccent else ElegantTextSecondary,
+                        modifier = Modifier.size(16.dp)
+                    )
+                    Spacer(modifier = Modifier.width(6.dp))
+                    Text(
+                        text = "Fils WhatsApp (${contactThreads.size})",
+                        style = MaterialTheme.typography.labelMedium,
+                        fontWeight = FontWeight.Bold,
+                        color = if (subViewMode == 1) ElegantPurpleOnAccent else ElegantTextSecondary,
+                        maxLines = 1,
+                        softWrap = false
+                    )
+                }
+            }
+        }
+
+        if (selectedContactJid != null) {
+            Spacer(modifier = Modifier.height(6.dp))
+            Row(
+                modifier = Modifier
+                    .fillMaxWidth()
+                    .background(ElegantDarkCardDark, RoundedCornerShape(10.dp))
+                    .padding(horizontal = 10.dp, vertical = 6.dp),
+                verticalAlignment = Alignment.CenterVertically,
+                horizontalArrangement = Arrangement.SpaceBetween
+            ) {
+                Text(
+                    text = "Filtre contact : $selectedContactJid",
+                    style = MaterialTheme.typography.labelSmall,
+                    color = Color(0xFF80D8FF),
+                    fontWeight = FontWeight.Bold,
+                    maxLines = 1,
+                    overflow = TextOverflow.Ellipsis,
+                    modifier = Modifier.weight(1f)
+                )
+                TextButton(
+                    onClick = { selectedContactJid = null },
+                    modifier = Modifier.height(30.dp)
+                ) {
+                    Text("Voir tout", fontSize = 11.sp, color = ElegantPurpleAccent)
+                }
+            }
+        }
+
+        Spacer(modifier = Modifier.height(8.dp))
+
+        // Content: SubView 0 = Chat Messages, SubView 1 = Contact Threads List
+        if (subViewMode == 1) {
+            if (contactThreads.isEmpty()) {
+                Box(
+                    modifier = Modifier
+                        .weight(1f)
+                        .fillMaxWidth(),
+                    contentAlignment = Alignment.Center
+                ) {
+                    Column(
+                        horizontalAlignment = Alignment.CenterHorizontally,
+                        modifier = Modifier.padding(24.dp)
+                    ) {
+                        Icon(
+                            imageVector = Icons.Default.QuestionAnswer,
+                            contentDescription = null,
+                            tint = ElegantTextSecondary,
+                            modifier = Modifier.size(48.dp)
+                        )
+                        Spacer(modifier = Modifier.height(12.dp))
+                        Text(
+                            text = "Aucun fil de discussion enregistré",
+                            style = MaterialTheme.typography.titleMedium,
+                            fontWeight = FontWeight.Bold,
+                            color = ElegantTextPrimary
+                        )
+                        Spacer(modifier = Modifier.height(6.dp))
+                        Text(
+                            text = "Les contacts qui vous écrivent sur WhatsApp s'afficheront ici automatiquement.",
+                            style = MaterialTheme.typography.bodySmall,
+                            color = ElegantTextSecondary,
+                            textAlign = androidx.compose.ui.text.style.TextAlign.Center
+                        )
+                    }
+                }
+            } else {
+                LazyColumn(
+                    modifier = Modifier
+                        .weight(1f)
+                        .fillMaxWidth(),
+                    verticalArrangement = Arrangement.spacedBy(8.dp)
+                ) {
+                    items(contactThreads, key = { it.remoteJid }) { thread ->
+                        Surface(
+                            shape = RoundedCornerShape(16.dp),
+                            color = ElegantDarkSurface,
+                            border = BorderStroke(1.dp, ElegantDarkBorder),
+                            modifier = Modifier
+                                .fillMaxWidth()
+                                .clickable {
+                                    selectedContactJid = thread.remoteJid
+                                    subViewMode = 0
+                                }
+                        ) {
+                            Row(
+                                modifier = Modifier.padding(14.dp),
+                                verticalAlignment = Alignment.CenterVertically
+                            ) {
+                                Box(
+                                    modifier = Modifier
+                                        .size(42.dp)
+                                        .clip(CircleShape)
+                                        .background(ElegantPurpleAccent.copy(alpha = 0.2f)),
+                                    contentAlignment = Alignment.Center
+                                ) {
+                                    Text(
+                                        text = thread.contactName.take(2).uppercase(),
+                                        color = ElegantPurpleAccent,
+                                        fontWeight = FontWeight.Bold,
+                                        fontSize = 14.sp
+                                    )
+                                }
+                                Spacer(modifier = Modifier.width(12.dp))
+                                Column(modifier = Modifier.weight(1f)) {
+                                    Row(
+                                        modifier = Modifier.fillMaxWidth(),
+                                        horizontalArrangement = Arrangement.SpaceBetween,
+                                        verticalAlignment = Alignment.CenterVertically
+                                    ) {
+                                        Text(
+                                            text = thread.contactName,
+                                            style = MaterialTheme.typography.bodyMedium,
+                                            fontWeight = FontWeight.Bold,
+                                            color = ElegantTextPrimary,
+                                            maxLines = 1,
+                                            overflow = TextOverflow.Ellipsis
+                                        )
+                                        Text(
+                                            text = if (thread.lastTimestamp > 0) timeFormat.format(Date(thread.lastTimestamp)) else "",
+                                            style = MaterialTheme.typography.labelSmall,
+                                            color = ElegantTextSecondary,
+                                            fontSize = 10.sp
+                                        )
+                                    }
+                                    Spacer(modifier = Modifier.height(4.dp))
+                                    Text(
+                                        text = "${thread.lastSender}: ${thread.lastMessage}",
+                                        style = MaterialTheme.typography.bodySmall,
+                                        color = ElegantTextSecondary,
+                                        maxLines = 1,
+                                        overflow = TextOverflow.Ellipsis
+                                    )
+                                }
+                                Spacer(modifier = Modifier.width(8.dp))
+                                Surface(
+                                    shape = CircleShape,
+                                    color = WhatsAppGreen.copy(alpha = 0.2f)
+                                ) {
+                                    Text(
+                                        text = "${thread.messageCount}",
+                                        modifier = Modifier.padding(horizontal = 8.dp, vertical = 2.dp),
+                                        style = MaterialTheme.typography.labelSmall,
+                                        fontWeight = FontWeight.Bold,
+                                        color = WhatsAppGreen
+                                    )
+                                }
+                            }
+                        }
+                    }
+                }
+            }
+        } else {
+            if (filteredMessages.isEmpty()) {
+                Card(
+                    modifier = Modifier
+                        .weight(1f)
+                        .fillMaxWidth()
+                        .padding(vertical = 8.dp),
+                    shape = RoundedCornerShape(20.dp),
+                    colors = CardDefaults.cardColors(containerColor = ElegantDarkSurface),
+                    border = BorderStroke(1.dp, ElegantDarkBorder)
+                ) {
+                    Column(
+                        modifier = Modifier
+                            .fillMaxSize()
+                            .padding(20.dp),
+                        horizontalAlignment = Alignment.CenterHorizontally,
+                        verticalArrangement = Arrangement.Center
+                    ) {
+                        Surface(
+                            shape = CircleShape,
+                            color = ElegantGreenActive.copy(alpha = 0.15f),
+                            border = BorderStroke(1.dp, ElegantGreenActive.copy(alpha = 0.5f))
+                        ) {
+                            Row(
+                                modifier = Modifier.padding(horizontal = 12.dp, vertical = 6.dp),
+                                verticalAlignment = Alignment.CenterVertically
+                            ) {
+                                Box(
+                                    modifier = Modifier
+                                        .size(8.dp)
+                                        .clip(CircleShape)
+                                        .background(ElegantGreenActive)
+                                )
+                                Spacer(modifier = Modifier.width(6.dp))
+                                Text(
+                                    text = "Passerelle HTTP 127.0.0.1:8080 Active",
+                                    style = MaterialTheme.typography.labelSmall,
+                                    color = ElegantGreenActive,
+                                    fontWeight = FontWeight.Bold
+                                )
+                            }
+                        }
+
+                        Spacer(modifier = Modifier.height(16.dp))
+
+                        Text(
+                            text = "En attente de messages WhatsApp...",
+                            style = MaterialTheme.typography.titleMedium,
+                            fontWeight = FontWeight.Bold,
+                            color = ElegantTextPrimary,
+                            textAlign = androidx.compose.ui.text.style.TextAlign.Center
+                        )
+
+                        Spacer(modifier = Modifier.height(8.dp))
+
+                        Text(
+                            text = "Dès que vous recevez un message sur votre WhatsApp connecté, la passerelle Baileys le transmet ici en temps réel et votre IA répond automatiquement.",
+                            style = MaterialTheme.typography.bodySmall,
+                            color = ElegantTextSecondary,
+                            textAlign = androidx.compose.ui.text.style.TextAlign.Center
+                        )
+
+                        Spacer(modifier = Modifier.height(18.dp))
+
+                        Button(
+                            onClick = {
+                                val targetInstId = currentInstance?.id ?: instances.firstOrNull()?.id ?: "inst_paris_01"
+                                viewModel.simulateCustomerMessage(
+                                    instanceId = targetInstId,
+                                    senderJid = "+33612345678@s.whatsapp.net",
+                                    senderName = "Client Test WhatsApp",
+                                    text = "Bonjour, avez-vous des disponibilités pour un rendez-vous ?"
+                                )
+                            },
+                            shape = RoundedCornerShape(12.dp),
+                            colors = ButtonDefaults.buttonColors(containerColor = ElegantPurpleAccent, contentColor = ElegantPurpleOnAccent)
+                        ) {
+                            Icon(Icons.Default.PlayArrow, contentDescription = null, modifier = Modifier.size(18.dp))
+                            Spacer(modifier = Modifier.width(6.dp))
+                            Text("Tester l'IA immédiatement", fontWeight = FontWeight.Bold, maxLines = 1, softWrap = false)
+                        }
+
+                        Spacer(modifier = Modifier.height(10.dp))
+
+                        OutlinedButton(
+                            onClick = {
+                                clipboardManager.setText(AnnotatedString(NodeJsBridgeScript.FAST_UPDATE_COMMAND))
+                                feedbackToast = "Commande Termux copiée !"
+                            },
+                            shape = RoundedCornerShape(12.dp),
+                            border = BorderStroke(1.dp, ElegantDarkBorder)
+                        ) {
+                            Icon(Icons.Default.ContentCopy, contentDescription = null, tint = ElegantTextSecondary, modifier = Modifier.size(16.dp))
+                            Spacer(modifier = Modifier.width(6.dp))
+                            Text("Copier Commande Termux", color = ElegantTextSecondary, fontSize = 12.sp, maxLines = 1, softWrap = false)
+                        }
+                    }
+                }
+            } else {
+                LazyColumn(
+                    modifier = Modifier
+                        .weight(1f)
+                        .fillMaxWidth()
+                        .padding(vertical = 6.dp),
+                    verticalArrangement = Arrangement.spacedBy(12.dp),
+                    reverseLayout = false
+                ) {
+                    items(filteredMessages, key = { it.id }) { msg ->
+                        ChatBubble(
+                            message = msg,
+                            onCopy = {
+                                clipboardManager.setText(AnnotatedString(msg.content))
+                                feedbackToast = "Message copié !"
+                            }
+                        )
+                    }
+
+                    if (isSimulating) {
+                        item {
+                            Row(
+                                modifier = Modifier
+                                    .fillMaxWidth()
+                                    .padding(8.dp),
+                                verticalAlignment = Alignment.CenterVertically
+                            ) {
+                                CircularProgressIndicator(
+                                    modifier = Modifier.size(18.dp),
+                                    strokeWidth = 2.dp,
+                                    color = ElegantPurpleAccent
+                                )
+                                Spacer(modifier = Modifier.width(10.dp))
+                                Text(
+                                    text = "L'Agent Local ${assignedAgent?.name ?: "IA"} génère sa réponse...",
+                                    style = MaterialTheme.typography.bodySmall,
+                                    color = ElegantPurpleSecondary
+                                )
+                            }
+                        }
+                    }
+                }
+            }
+
+            // Quick Prompts Suggestions
+            FlowRow(
+                horizontalArrangement = Arrangement.spacedBy(6.dp),
+                verticalArrangement = Arrangement.spacedBy(4.dp),
+                modifier = Modifier.padding(vertical = 4.dp)
+            ) {
+                val suggestions = listOf(
+                    "Prix du pack ?",
+                    "Horaires d'ouverture ?",
+                    "Prendre RDV",
+                    "Suivi commande #9201",
+                    "Parler à un humain"
+                )
+                suggestions.forEach { prompt ->
+                    Surface(
+                        shape = RoundedCornerShape(12.dp),
+                        color = ElegantDarkSurfaceVariant,
+                        border = BorderStroke(1.dp, ElegantDarkBorder),
+                        modifier = Modifier.clickable {
+                            inputMessageText = prompt
+                        }
+                    ) {
+                        Text(
+                            text = prompt,
+                            style = MaterialTheme.typography.labelSmall,
+                            color = ElegantTextPrimary,
+                            maxLines = 1,
+                            softWrap = false,
+                            modifier = Modifier.padding(horizontal = 8.dp, vertical = 4.dp)
+                        )
+                    }
+                }
+            }
+
+            // Input bar with Dual Send Mode
+            Card(
+                modifier = Modifier
+                    .fillMaxWidth()
+                    .padding(bottom = 8.dp),
+                colors = CardDefaults.cardColors(containerColor = ElegantDarkSurface),
+                shape = RoundedCornerShape(20.dp),
+                border = BorderStroke(1.dp, ElegantDarkBorder)
+            ) {
+                Column(modifier = Modifier.padding(8.dp)) {
+                    Row(
+                        modifier = Modifier.fillMaxWidth(),
+                        verticalAlignment = Alignment.CenterVertically,
+                        horizontalArrangement = Arrangement.SpaceBetween
+                    ) {
+                        Row(verticalAlignment = Alignment.CenterVertically) {
+                            Surface(
+                                shape = RoundedCornerShape(8.dp),
+                                color = if (sendAsCustomer) Color(0xFF00B0FF).copy(alpha = 0.2f) else ElegantDarkBg,
+                                border = BorderStroke(1.dp, if (sendAsCustomer) Color(0xFF00B0FF) else ElegantDarkBorder),
+                                modifier = Modifier.clickable { sendAsCustomer = true }
+                            ) {
+                                Text(
+                                    text = "Simuler Client (Déclenche IA)",
+                                    modifier = Modifier.padding(horizontal = 8.dp, vertical = 3.dp),
+                                    style = MaterialTheme.typography.labelSmall,
+                                    fontWeight = if (sendAsCustomer) FontWeight.Bold else FontWeight.Normal,
+                                    color = if (sendAsCustomer) Color(0xFF00B0FF) else ElegantTextSecondary,
+                                    fontSize = 10.sp,
+                                    maxLines = 1,
+                                    softWrap = false
+                                )
+                            }
+                            Spacer(modifier = Modifier.width(6.dp))
+                            Surface(
+                                shape = RoundedCornerShape(8.dp),
+                                color = if (!sendAsCustomer) WhatsAppGreen.copy(alpha = 0.2f) else ElegantDarkBg,
+                                border = BorderStroke(1.dp, if (!sendAsCustomer) WhatsAppGreen else ElegantDarkBorder),
+                                modifier = Modifier.clickable { sendAsCustomer = false }
+                            ) {
+                                Text(
+                                    text = "Moi / Réponse Manuelle",
+                                    modifier = Modifier.padding(horizontal = 8.dp, vertical = 3.dp),
+                                    style = MaterialTheme.typography.labelSmall,
+                                    fontWeight = if (!sendAsCustomer) FontWeight.Bold else FontWeight.Normal,
+                                    color = if (!sendAsCustomer) WhatsAppGreen else ElegantTextSecondary,
+                                    fontSize = 10.sp,
+                                    maxLines = 1,
+                                    softWrap = false
+                                )
+                            }
+                        }
+                    }
+
+                    Spacer(modifier = Modifier.height(6.dp))
+
+                    Row(
+                        modifier = Modifier.fillMaxWidth(),
+                        verticalAlignment = Alignment.CenterVertically
+                    ) {
+                        OutlinedTextField(
+                            value = inputMessageText,
+                            onValueChange = { inputMessageText = it },
+                            placeholder = {
+                                Text(
+                                    text = if (sendAsCustomer) "Écrire un message client..." else "Écrire une réponse manuelle...",
+                                    color = ElegantTextSecondary,
+                                    fontSize = 13.sp
+                                )
+                            },
+                            modifier = Modifier
+                                .weight(1f)
+                                .testTag("simulator_chat_input"),
+                            shape = RoundedCornerShape(16.dp),
+                            maxLines = 3
+                        )
+                        Spacer(modifier = Modifier.width(8.dp))
+                        IconButton(
+                            onClick = {
+                                if (inputMessageText.isNotBlank()) {
+                                    val textToSend = inputMessageText
+                                    inputMessageText = ""
+                                    val targetInstId = currentInstance?.id ?: instances.firstOrNull()?.id ?: "inst_paris_01"
+                                    val contactJid = selectedContactJid ?: "$customerPhone@s.whatsapp.net"
+
+                                    if (sendAsCustomer) {
+                                        viewModel.simulateCustomerMessage(
+                                            instanceId = targetInstId,
+                                            senderJid = contactJid,
+                                            senderName = customerName,
+                                            text = textToSend
+                                        )
+                                    } else {
+                                        viewModel.sendManualReply(
+                                            instanceId = targetInstId,
+                                            remoteJid = contactJid,
+                                            text = textToSend
+                                        )
+                                    }
+                                }
+                            },
+                            modifier = Modifier
+                                .size(44.dp)
+                                .clip(CircleShape)
+                                .background(if (sendAsCustomer) ElegantPurpleAccent else WhatsAppGreen)
+                                .testTag("simulator_send_button")
+                        ) {
+                            Icon(
+                                imageVector = Icons.AutoMirrored.Filled.Send,
+                                contentDescription = "Envoyer",
+                                tint = ElegantPurpleOnAccent
+                            )
+                        }
+                    }
                 }
             }
         }
     }
+
+    if (showClearConfirmation) {
+        AlertDialog(
+            onDismissRequest = { showClearConfirmation = false },
+            shape = RoundedCornerShape(18.dp),
+            containerColor = ElegantDarkSurface,
+            title = { Text("Effacer tous les messages ?", color = ElegantTextPrimary, fontWeight = FontWeight.Bold) },
+            text = { Text("Cette action supprimera l'historique de tous les messages capturés.", color = ElegantTextSecondary) },
+            confirmButton = {
+                Button(
+                    onClick = {
+                        viewModel.clearAllMessages()
+                        showClearConfirmation = false
+                    },
+                    colors = ButtonDefaults.buttonColors(containerColor = ElegantRedAlert)
+                ) {
+                    Text("Effacer", fontWeight = FontWeight.Bold)
+                }
+            },
+            dismissButton = {
+                TextButton(onClick = { showClearConfirmation = false }) {
+                    Text("Annuler", color = ElegantTextSecondary)
+                }
+            }
+        )
+    }
+
+    if (showBindDialog && currentInstance != null) {
+        BindAgentAndModelDialog(
+            instance = currentInstance,
+            agents = agents,
+            models = selectableModels,
+            onDismiss = { showBindDialog = false },
+            onSave = { agentId, modelId ->
+                viewModel.bindAgentAndModelToInstance(currentInstance.id, agentId, modelId)
+                showBindDialog = false
+            }
+        )
+    }
+
+    feedbackToast?.let { toast ->
+        AlertDialog(
+            onDismissRequest = { feedbackToast = null },
+            shape = RoundedCornerShape(16.dp),
+            containerColor = ElegantDarkSurface,
+            text = { Text(toast, color = ElegantTextPrimary, fontWeight = FontWeight.Bold) },
+            confirmButton = {
+                TextButton(onClick = { feedbackToast = null }) {
+                    Text("OK", color = ElegantPurpleAccent)
+                }
+            }
+        )
+    }
 }
 
 @Composable
-fun ChatBubble(message: WhatsAppMessageEntity) {
+fun ChatBubble(
+    message: WhatsAppMessageEntity,
+    onCopy: () -> Unit = {}
+) {
     val isCustomer = message.isFromCustomer
+    val timeFormat = remember { SimpleDateFormat("HH:mm", Locale.getDefault()) }
+    val formattedTime = remember(message.timestamp) {
+        if (message.timestamp > 0) timeFormat.format(Date(message.timestamp)) else ""
+    }
 
     Column(
         modifier = Modifier.fillMaxWidth(),
@@ -378,27 +1025,47 @@ fun ChatBubble(message: WhatsAppMessageEntity) {
             ),
             color = if (isCustomer) ElegantDarkCardDark else ElegantDarkSurfaceVariant,
             border = BorderStroke(1.dp, if (isCustomer) ElegantDarkBorder else ElegantPurpleAccent.copy(alpha = 0.4f)),
-            modifier = Modifier.widthIn(max = 310.dp)
+            modifier = Modifier.widthIn(min = 140.dp, max = 320.dp)
         ) {
-            Column(modifier = Modifier.padding(14.dp)) {
-                // Header (Sender)
-                Row(verticalAlignment = Alignment.CenterVertically) {
-                    Icon(
-                        imageVector = if (isCustomer) Icons.Default.Person else Icons.Default.SmartToy,
-                        contentDescription = null,
-                        tint = if (isCustomer) Color(0xFF80D8FF) else ElegantPurpleAccent,
-                        modifier = Modifier.size(15.dp)
-                    )
-                    Spacer(modifier = Modifier.width(6.dp))
-                    Text(
-                        text = message.senderName,
-                        style = MaterialTheme.typography.labelSmall,
-                        fontWeight = FontWeight.Bold,
-                        color = if (isCustomer) Color(0xFF80D8FF) else ElegantPurpleAccent
-                    )
+            Column(modifier = Modifier.padding(12.dp)) {
+                // Header (Sender icon & name & copy button)
+                Row(
+                    modifier = Modifier.fillMaxWidth(),
+                    verticalAlignment = Alignment.CenterVertically,
+                    horizontalArrangement = Arrangement.SpaceBetween
+                ) {
+                    Row(verticalAlignment = Alignment.CenterVertically, modifier = Modifier.weight(1f)) {
+                        Icon(
+                            imageVector = if (isCustomer) Icons.Default.Person else Icons.Default.SmartToy,
+                            contentDescription = null,
+                            tint = if (isCustomer) Color(0xFF80D8FF) else ElegantPurpleAccent,
+                            modifier = Modifier.size(15.dp)
+                        )
+                        Spacer(modifier = Modifier.width(6.dp))
+                        Text(
+                            text = message.senderName,
+                            style = MaterialTheme.typography.labelSmall,
+                            fontWeight = FontWeight.Bold,
+                            color = if (isCustomer) Color(0xFF80D8FF) else ElegantPurpleAccent,
+                            maxLines = 1,
+                            overflow = TextOverflow.Ellipsis
+                        )
+                    }
+
+                    IconButton(
+                        onClick = onCopy,
+                        modifier = Modifier.size(22.dp)
+                    ) {
+                        Icon(
+                            imageVector = Icons.Default.ContentCopy,
+                            contentDescription = "Copier",
+                            tint = ElegantTextSecondary.copy(alpha = 0.7f),
+                            modifier = Modifier.size(13.dp)
+                        )
+                    }
                 }
 
-                Spacer(modifier = Modifier.height(6.dp))
+                Spacer(modifier = Modifier.height(4.dp))
 
                 Text(
                     text = message.content,
@@ -408,20 +1075,20 @@ fun ChatBubble(message: WhatsAppMessageEntity) {
 
                 // Trace info if AI response
                 if (!isCustomer) {
-                    Spacer(modifier = Modifier.height(8.dp))
+                    Spacer(modifier = Modifier.height(6.dp))
                     Column(
                         modifier = Modifier
                             .fillMaxWidth()
-                            .background(ElegantDarkBg, RoundedCornerShape(10.dp))
-                            .border(1.dp, ElegantDarkBorder, RoundedCornerShape(10.dp))
-                            .padding(8.dp)
+                            .background(ElegantDarkBg, RoundedCornerShape(8.dp))
+                            .border(1.dp, ElegantDarkBorder, RoundedCornerShape(8.dp))
+                            .padding(6.dp)
                     ) {
                         message.routingReason?.let { reason ->
                             Text(
                                 text = "🎯 $reason",
                                 style = MaterialTheme.typography.labelSmall,
                                 color = ElegantPurpleAccent,
-                                fontSize = 11.sp,
+                                fontSize = 10.sp,
                                 fontWeight = FontWeight.SemiBold
                             )
                         }
@@ -430,16 +1097,31 @@ fun ChatBubble(message: WhatsAppMessageEntity) {
                                 text = "⚡ MCP: $tools",
                                 style = MaterialTheme.typography.labelSmall,
                                 color = Color(0xFFFFD54F),
-                                fontSize = 10.sp
+                                fontSize = 9.sp
                             )
                         }
                         Text(
-                            text = "⚡ Latence Edge: ${message.latencyMs}ms",
+                            text = "⏱️ Latence Edge: ${message.latencyMs}ms",
                             style = MaterialTheme.typography.labelSmall,
-                            color = ElegantTextSecondary,
-                            fontSize = 10.sp
+                            color = EdgeAiCyan,
+                            fontSize = 9.sp
                         )
                     }
+                }
+
+                Spacer(modifier = Modifier.height(4.dp))
+
+                // Bottom timestamp
+                if (formattedTime.isNotBlank()) {
+                    Text(
+                        text = formattedTime,
+                        style = MaterialTheme.typography.labelSmall,
+                        color = ElegantTextSecondary.copy(alpha = 0.7f),
+                        fontSize = 9.sp,
+                        modifier = Modifier.align(Alignment.End),
+                        maxLines = 1,
+                        softWrap = false
+                    )
                 }
             }
         }

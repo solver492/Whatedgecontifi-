@@ -19,6 +19,9 @@ interface WhatsAppDao {
     @Query("SELECT * FROM whatsapp_instances ORDER BY lastActiveTimestamp DESC")
     fun getAllInstances(): Flow<List<WhatsAppInstanceEntity>>
 
+    @Query("SELECT * FROM whatsapp_instances ORDER BY lastActiveTimestamp DESC")
+    suspend fun getAllInstancesList(): List<WhatsAppInstanceEntity>
+
     @Query("SELECT * FROM whatsapp_instances WHERE id = :id LIMIT 1")
     suspend fun getInstanceById(id: String): WhatsAppInstanceEntity?
 
@@ -30,6 +33,9 @@ interface WhatsAppDao {
 
     @Query("UPDATE whatsapp_instances SET status = :status, qrToken = :qrToken, pairingCode = :pairingCode WHERE id = :id")
     suspend fun updateStatus(id: String, status: String, qrToken: String, pairingCode: String)
+
+    @Query("UPDATE whatsapp_instances SET messagesCount = messagesCount + 1, lastActiveTimestamp = :timestamp WHERE id = :id")
+    suspend fun recordIncomingMessage(id: String, timestamp: Long = System.currentTimeMillis())
 
     @Query("DELETE FROM whatsapp_instances WHERE id = :id")
     suspend fun deleteInstance(id: String)
@@ -106,14 +112,26 @@ interface WhatsAppMessageDao {
     @Query("SELECT * FROM whatsapp_messages WHERE instanceId = :instanceId ORDER BY timestamp ASC")
     fun getMessagesForInstance(instanceId: String): Flow<List<WhatsAppMessageEntity>>
 
-    @Query("SELECT * FROM whatsapp_messages ORDER BY timestamp DESC LIMIT 100")
+    @Query("SELECT * FROM whatsapp_messages ORDER BY timestamp DESC LIMIT 200")
     fun getRecentMessages(): Flow<List<WhatsAppMessageEntity>>
+
+    @Query("SELECT * FROM whatsapp_messages ORDER BY timestamp ASC")
+    fun getAllMessages(): Flow<List<WhatsAppMessageEntity>>
+
+    @Query("SELECT * FROM whatsapp_messages WHERE remoteJid = :remoteJid ORDER BY timestamp ASC")
+    fun getMessagesForContact(remoteJid: String): Flow<List<WhatsAppMessageEntity>>
 
     @Insert(onConflict = OnConflictStrategy.REPLACE)
     suspend fun insertMessage(message: WhatsAppMessageEntity)
 
     @Query("DELETE FROM whatsapp_messages WHERE instanceId = :instanceId")
     suspend fun clearMessagesForInstance(instanceId: String)
+
+    @Query("DELETE FROM whatsapp_messages WHERE remoteJid = :remoteJid")
+    suspend fun deleteMessagesForContact(remoteJid: String)
+
+    @Query("DELETE FROM whatsapp_messages")
+    suspend fun clearAllMessages()
 }
 
 @Dao

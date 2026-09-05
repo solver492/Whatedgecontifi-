@@ -188,15 +188,22 @@ class BaileysService(private val database: AppDatabase) {
             agent.assignedInstanceIdsCsv == "*" || agent.assignedInstanceIdsCsv.contains(instanceId)
         }
 
-        if (eligibleAgents.isEmpty()) {
-            return Pair(null, "No agent assigned to this WhatsApp instance")
+        val candidateAgents = if (eligibleAgents.isNotEmpty()) {
+            eligibleAgents
+        } else {
+            // Gracefully fallback to active agents if none explicitly assigned
+            agents.filter { it.isActive }.ifEmpty { agents }
+        }
+
+        if (candidateAgents.isEmpty()) {
+            return Pair(null, "No agent configured in application")
         }
 
         val textLower = messageText.lowercase(Locale.getDefault())
         val currentTimeStr = SimpleDateFormat("HH:mm", Locale.getDefault()).format(Date())
 
         // 1. Keyword-based matching priority
-        for (agent in eligibleAgents) {
+        for (agent in candidateAgents) {
             if (agent.activationMode == "KEYWORDS" || agent.keywordsCsv.isNotBlank()) {
                 val keywords = agent.keywordsCsv.split(",").map { it.trim().lowercase(Locale.getDefault()) }.filter { it.isNotBlank() }
                 val matchedKeyword = keywords.firstOrNull { kw -> textLower.contains(kw) }
@@ -207,7 +214,7 @@ class BaileysService(private val database: AppDatabase) {
         }
 
         // 2. Schedule-based matching
-        for (agent in eligibleAgents) {
+        for (agent in candidateAgents) {
             if (agent.activationMode == "SCHEDULE") {
                 if (isTimeInRange(currentTimeStr, agent.scheduleStart, agent.scheduleEnd)) {
                     return Pair(agent, "Scheduled active slot (${agent.scheduleStart} - ${agent.scheduleEnd})")
@@ -216,13 +223,13 @@ class BaileysService(private val database: AppDatabase) {
         }
 
         // 3. "ALWAYS" active agent
-        val alwaysActive = eligibleAgents.firstOrNull { it.activationMode == "ALWAYS" }
+        val alwaysActive = candidateAgents.firstOrNull { it.activationMode == "ALWAYS" }
         if (alwaysActive != null) {
             return Pair(alwaysActive, "Default always-active responder")
         }
 
         // 4. Fallback agent
-        val fallback = eligibleAgents.firstOrNull { it.isFallback } ?: eligibleAgents.firstOrNull()
+        val fallback = candidateAgents.firstOrNull { it.isFallback } ?: candidateAgents.firstOrNull()
         return Pair(fallback, "General fallback agent")
     }
 

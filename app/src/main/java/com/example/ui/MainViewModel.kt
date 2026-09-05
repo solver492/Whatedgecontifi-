@@ -350,7 +350,7 @@ class MainViewModel(application: Application) : AndroidViewModel(application) {
         }
     }
 
-    // --- Live Customer Simulation ---
+    // --- Live Customer Simulation & Manual Reply ---
     fun simulateCustomerMessage(
         instanceId: String,
         senderJid: String,
@@ -369,6 +369,52 @@ class MainViewModel(application: Application) : AndroidViewModel(application) {
             } finally {
                 _isSimulatingReply.value = false
             }
+        }
+    }
+
+    fun sendManualReply(instanceId: String, remoteJid: String, text: String) {
+        viewModelScope.launch {
+            val msg = WhatsAppMessageEntity(
+                id = UUID.randomUUID().toString(),
+                instanceId = instanceId,
+                remoteJid = remoteJid,
+                senderName = "Moi (Opérateur)",
+                content = text,
+                isFromCustomer = false,
+                timestamp = System.currentTimeMillis()
+            )
+            database.whatsAppMessageDao().insertMessage(msg)
+        }
+    }
+
+    fun deleteMessagesForContact(remoteJid: String) {
+        viewModelScope.launch {
+            database.whatsAppMessageDao().deleteMessagesForContact(remoteJid)
+        }
+    }
+
+    fun clearAllMessages() {
+        viewModelScope.launch {
+            database.whatsAppMessageDao().clearAllMessages()
+        }
+    }
+
+    fun bindAgentAndModelToInstance(instanceId: String, agentId: String, modelId: String) {
+        viewModelScope.launch {
+            val agent = database.agentDao().getAgentById(agentId) ?: return@launch
+            val updatedInstances = if (agent.assignedInstanceIdsCsv == "*") {
+                "*"
+            } else {
+                val list = agent.assignedInstanceIdsCsv.split(",").map { it.trim() }.filter { it.isNotBlank() }.toMutableSet()
+                list.add(instanceId)
+                list.joinToString(",")
+            }
+            val updatedAgent = agent.copy(
+                modelId = modelId,
+                assignedInstanceIdsCsv = updatedInstances,
+                isActive = true
+            )
+            database.agentDao().updateAgent(updatedAgent)
         }
     }
 
