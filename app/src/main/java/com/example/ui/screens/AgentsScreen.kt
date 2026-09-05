@@ -63,6 +63,7 @@ import androidx.compose.material3.SwitchDefaults
 import androidx.compose.material3.Text
 import androidx.compose.material3.TextButton
 import androidx.compose.runtime.Composable
+import androidx.compose.runtime.collectAsState
 import androidx.compose.runtime.getValue
 import androidx.compose.runtime.mutableStateOf
 import androidx.compose.runtime.remember
@@ -104,6 +105,7 @@ fun AgentsScreen(
     agents: List<AgentEntity>,
     instances: List<WhatsAppInstanceEntity> = emptyList()
 ) {
+    val selectableModels by viewModel.allSelectableModels.collectAsState()
     var showCreateDialog by remember { mutableStateOf(false) }
     var editingAgent by remember { mutableStateOf<AgentEntity?>(null) }
     var testingAgent by remember { mutableStateOf<AgentEntity?>(null) }
@@ -231,6 +233,7 @@ fun AgentsScreen(
         AgentEditDialog(
             agent = null,
             instances = instances,
+            selectableModels = selectableModels,
             onDismiss = { showCreateDialog = false },
             onSave = { name, role, prompt, model, activation, keywords, start, end, selectedInstances, andTest ->
                 viewModel.saveAgent(
@@ -260,6 +263,7 @@ fun AgentsScreen(
         AgentEditDialog(
             agent = agent,
             instances = instances,
+            selectableModels = selectableModels,
             onDismiss = { editingAgent = null },
             onSave = { name, role, prompt, model, activation, keywords, start, end, selectedInstances, andTest ->
                 viewModel.saveAgent(
@@ -660,6 +664,7 @@ fun AgentCard(
 fun AgentEditDialog(
     agent: AgentEntity?,
     instances: List<WhatsAppInstanceEntity>,
+    selectableModels: List<com.example.ui.SelectableModelOption> = emptyList(),
     onDismiss: () -> Unit,
     onSave: (
         name: String,
@@ -817,30 +822,64 @@ fun AgentEditDialog(
 
                 item {
                     Text(
-                        text = "Modèle Local AI Edge :",
+                        text = "Modèle Local AI Edge & Cloud Fallback :",
                         style = MaterialTheme.typography.labelMedium,
                         fontWeight = FontWeight.Bold,
                         color = ElegantPurpleAccent
                     )
-                    val models = listOf(
-                        "gemma-2-2b-int4" to "Gemma-2 2B (INT4 Blockwise - Local NPU)",
-                        "llama-3.2-1b-int4" to "Llama-3.2 1B (INT4 GPTQ - Local CPU)",
-                        "phi-3.5-mini-int4" to "Phi-3.5-mini (INT4/8 Mixed - Local GPU)",
-                        "gemini-3.5-flash" to "Gemini 3.5 Flash (Cloud Edge Fallback)"
-                    )
-                    Column {
-                        models.forEach { (id, label) ->
-                            Row(
-                                verticalAlignment = Alignment.CenterVertically,
+                    Spacer(modifier = Modifier.height(6.dp))
+                    Column(verticalArrangement = Arrangement.spacedBy(6.dp)) {
+                        selectableModels.forEach { opt ->
+                            Surface(
                                 modifier = Modifier
                                     .fillMaxWidth()
-                                    .clickable { modelId = id }
+                                    .clickable { modelId = opt.id },
+                                color = if (modelId == opt.id) ElegantPurpleAccent.copy(alpha = 0.15f) else ElegantDarkBg,
+                                shape = RoundedCornerShape(12.dp),
+                                border = BorderStroke(1.dp, if (modelId == opt.id) ElegantPurpleAccent else ElegantDarkBorder)
                             ) {
-                                RadioButton(
-                                    selected = modelId == id,
-                                    onClick = { modelId = id }
-                                )
-                                Text(label, style = MaterialTheme.typography.bodySmall, color = ElegantTextPrimary)
+                                Row(
+                                    modifier = Modifier.padding(horizontal = 10.dp, vertical = 8.dp),
+                                    verticalAlignment = Alignment.CenterVertically
+                                ) {
+                                    RadioButton(
+                                        selected = modelId == opt.id,
+                                        onClick = { modelId = opt.id }
+                                    )
+                                    Spacer(modifier = Modifier.width(6.dp))
+                                    Column(modifier = Modifier.weight(1f)) {
+                                        Row(verticalAlignment = Alignment.CenterVertically) {
+                                            Text(
+                                                text = opt.name,
+                                                style = MaterialTheme.typography.bodySmall,
+                                                fontWeight = FontWeight.Bold,
+                                                color = ElegantTextPrimary
+                                            )
+                                            if (opt.isDownloaded) {
+                                                Spacer(modifier = Modifier.width(6.dp))
+                                                Surface(
+                                                    shape = RoundedCornerShape(4.dp),
+                                                    color = ElegantGreenActive.copy(alpha = 0.2f)
+                                                ) {
+                                                    Text(
+                                                        text = "On-Device",
+                                                        modifier = Modifier.padding(horizontal = 4.dp, vertical = 1.dp),
+                                                        style = MaterialTheme.typography.labelSmall,
+                                                        fontSize = 9.sp,
+                                                        color = ElegantGreenActive,
+                                                        fontWeight = FontWeight.Bold
+                                                    )
+                                                }
+                                            }
+                                        }
+                                        Text(
+                                            text = opt.details,
+                                            style = MaterialTheme.typography.labelSmall,
+                                            color = ElegantTextSecondary,
+                                            fontSize = 11.sp
+                                        )
+                                    }
+                                }
                             }
                         }
                     }

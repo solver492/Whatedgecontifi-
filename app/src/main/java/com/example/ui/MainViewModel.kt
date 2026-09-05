@@ -11,22 +11,113 @@ import com.example.data.local.entity.WebhookConfigEntity
 import com.example.data.local.entity.WhatsAppInstanceEntity
 import com.example.data.local.entity.WhatsAppMessageEntity
 import com.example.domain.baileys.BaileysService
+import com.example.domain.baileys.LocalNodeBridgeServer
+import com.example.domain.baileys.LogType
 import com.example.domain.engine.AiEdgeQuantizerEngine
+import com.example.domain.engine.EdgeModelCatalogItem
 import com.example.domain.engine.EdgeQuantizedModelInfo
+import com.example.domain.engine.LocalModelManager
 import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.flow.MutableStateFlow
 import kotlinx.coroutines.flow.SharingStarted
 import kotlinx.coroutines.flow.StateFlow
 import kotlinx.coroutines.flow.asStateFlow
+import kotlinx.coroutines.flow.combine
 import kotlinx.coroutines.flow.stateIn
 import kotlinx.coroutines.launch
 import kotlinx.coroutines.withContext
 import java.util.UUID
 
+data class SelectableModelOption(
+    val id: String,
+    val name: String,
+    val details: String,
+    val isDownloaded: Boolean,
+    val sizeMb: Int
+)
+
 class MainViewModel(application: Application) : AndroidViewModel(application) {
 
     private val database = AppDatabase.getDatabase(application)
     val baileysService = BaileysService(database)
+    val modelManager = LocalModelManager(application)
+    val bridgeServer = LocalNodeBridgeServer(database, baileysService)
+
+    val downloadStates = modelManager.downloadStates
+    val downloadedModels = modelManager.downloadedModels
+    val modelCatalog = modelManager.catalog
+
+    val bridgeRunning = bridgeServer.isRunning
+    val bridgePort = bridgeServer.serverPort
+    val bridgeLogs = bridgeServer.logs
+
+    val allSelectableModels: StateFlow<List<SelectableModelOption>> = combine(
+        modelManager.downloadedModels,
+        modelManager.downloadStates
+    ) { downloadedList, _ ->
+        val downloadedIds = downloadedList.map { it.id }.toSet()
+        val list = mutableListOf<SelectableModelOption>()
+
+        modelManager.catalog.forEach { cat ->
+            val isDownloaded = downloadedIds.contains(cat.id) || modelManager.isModelDownloaded(cat.id)
+            list.add(
+                SelectableModelOption(
+                    id = cat.id,
+                    name = cat.name,
+                    details = "${cat.architecture} • ${cat.quantizationRecipe} • ${cat.sizeMb} Mo",
+                    isDownloaded = isDownloaded,
+                    sizeMb = cat.sizeMb
+                )
+            )
+        }
+
+        // Add cloud fallback option
+        list.add(
+            SelectableModelOption(
+                id = "gemini-3.5-flash",
+                name = "Gemini 3.5 Flash (Cloud Fallback)",
+                details = "Multimodal REST API • Secours intelligent",
+                isDownloaded = true,
+                sizeMb = 0
+            )
+        )
+        list
+    }.stateIn(viewModelScope, SharingStarted.WhileSubscribed(5000), emptyList())
+
+    init {
+        // Automatically start the local HTTP bridge on port 8080 for Termux / Node.js
+        bridgeServer.start(8080)
+    }
+
+    override fun onCleared() {
+        super.onCleared()
+        bridgeServer.stop()
+    }
+
+    // Bridge Server controls
+    fun startBridge(port: Int = 8080) = bridgeServer.start(port)
+    fun stopBridge() = bridgeServer.stop()
+    fun restartBridge(port: Int = 8080) = bridgeServer.restart(port)
+    fun clearBridgeLogs() = bridgeServer.clearLogs()
+
+    // Model Download and Management
+    fun downloadModel(item: EdgeModelCatalogItem) = modelManager.startDownload(item)
+    fun calibrateAndInstallModel(item: EdgeModelCatalogItem) = modelManager.calibrateAndInstallModel(item)
+    fun cancelModelDownload(modelId: String) = modelManager.cancelDownload(modelId)
+    fun deleteDownloadedModel(modelId: String) = modelManager.deleteDownloadedModel(modelId)
+    fun setHuggingFaceToken(token: String?) {
+        modelManager.huggingFaceToken = token
+    }
+    fun setGeminiApiKey(key: String?) {
+        com.example.domain.engine.GeminiClient.customApiKey = key
+    }
+    suspend fun runDeviceInference(
+        modelId: String,
+        prompt: String,
+        backend: String = "NPU",
+        temperature: Float = 0.7f,
+        systemPrompt: String? = null
+    ) = modelManager.runDeviceInferenceTest(modelId, prompt, backend, temperature, systemPrompt)
 
     val instances: StateFlow<List<WhatsAppInstanceEntity>> = database.whatsAppDao()
         .getAllInstances()
