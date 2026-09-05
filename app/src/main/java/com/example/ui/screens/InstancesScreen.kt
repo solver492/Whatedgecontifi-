@@ -71,6 +71,7 @@ import androidx.compose.ui.Modifier
 import androidx.compose.ui.draw.clip
 import androidx.compose.ui.graphics.Color
 import androidx.compose.ui.platform.LocalClipboardManager
+import androidx.compose.ui.platform.LocalContext
 import androidx.compose.ui.platform.testTag
 import androidx.compose.ui.text.AnnotatedString
 import androidx.compose.ui.text.font.FontFamily
@@ -83,6 +84,7 @@ import com.example.data.local.entity.WhatsAppInstanceEntity
 import com.example.domain.baileys.LogType
 import com.example.domain.baileys.NodeJsBridgeScript
 import com.example.domain.baileys.QrCodeGenerator
+import com.example.domain.baileys.TermuxSyncEngine
 import com.example.domain.engine.EdgeModelCatalogItem
 import com.example.ui.MainViewModel
 import com.example.ui.SelectableModelOption
@@ -124,7 +126,10 @@ fun InstancesScreen(
     val isBridgeRunning by viewModel.bridgeRunning.collectAsState()
     val bridgePort by viewModel.bridgePort.collectAsState()
     val bridgeLogs by viewModel.bridgeLogs.collectAsState()
+    val isTermuxOnline by viewModel.isTermuxOnline.collectAsState()
+    val termuxPort by viewModel.termuxPort.collectAsState()
 
+    val context = LocalContext.current
     val clipboardManager = LocalClipboardManager.current
     var copiedNotice by remember { mutableStateOf<String?>(null) }
 
@@ -159,7 +164,7 @@ fun InstancesScreen(
                                 )
                             }
                             Spacer(modifier = Modifier.width(12.dp))
-                            Column {
+                            Column(modifier = Modifier.weight(1f)) {
                                 Text(
                                     text = "Passerelle WhatsApp & Baileys",
                                     style = MaterialTheme.typography.titleMedium,
@@ -173,19 +178,24 @@ fun InstancesScreen(
                                 )
                             }
                         }
+
                         Spacer(modifier = Modifier.height(14.dp))
+
+                        // Status Badges (Server and Termux)
                         Row(
                             modifier = Modifier.fillMaxWidth(),
-                            horizontalArrangement = Arrangement.SpaceBetween,
+                            horizontalArrangement = Arrangement.spacedBy(8.dp),
                             verticalAlignment = Alignment.CenterVertically
                         ) {
+                            // Android App Server Status
                             Surface(
+                                modifier = Modifier.weight(1f),
                                 shape = RoundedCornerShape(10.dp),
-                                color = ElegantDarkBg.copy(alpha = 0.6f),
-                                border = BorderStroke(1.dp, ElegantDarkBorder)
+                                color = ElegantDarkBg.copy(alpha = 0.7f),
+                                border = BorderStroke(1.dp, if (isBridgeRunning) ElegantGreenActive.copy(alpha = 0.4f) else ElegantDarkBorder)
                             ) {
                                 Row(
-                                    modifier = Modifier.padding(horizontal = 10.dp, vertical = 5.dp),
+                                    modifier = Modifier.padding(horizontal = 8.dp, vertical = 6.dp),
                                     verticalAlignment = Alignment.CenterVertically
                                 ) {
                                     Box(
@@ -196,32 +206,102 @@ fun InstancesScreen(
                                     )
                                     Spacer(modifier = Modifier.width(6.dp))
                                     Text(
-                                        text = if (isBridgeRunning) "Serveur Local: http://127.0.0.1:$bridgePort" else "Serveur Local: Arrêté",
+                                        text = if (isBridgeRunning) "Serveur App : :$bridgePort" else "Serveur : Off",
                                         style = MaterialTheme.typography.labelSmall,
                                         fontWeight = FontWeight.Bold,
-                                        color = ElegantTextPrimary
+                                        color = ElegantTextPrimary,
+                                        maxLines = 1
                                     )
                                 }
                             }
 
-                            Row(horizontalArrangement = Arrangement.spacedBy(6.dp)) {
-                                if (isBridgeRunning) {
-                                    OutlinedButton(
-                                        onClick = { viewModel.stopBridge() },
-                                        shape = RoundedCornerShape(8.dp),
-                                        border = BorderStroke(1.dp, ElegantRedAlert.copy(alpha = 0.6f))
-                                    ) {
-                                        Text("Arrêter", color = ElegantRedAlert, fontSize = 11.sp)
-                                    }
-                                } else {
-                                    Button(
-                                        onClick = { viewModel.startBridge(8080) },
-                                        shape = RoundedCornerShape(8.dp),
-                                        colors = ButtonDefaults.buttonColors(containerColor = ElegantPurpleAccent)
-                                    ) {
-                                        Text("Démarrer", fontSize = 11.sp, color = ElegantPurpleOnAccent)
-                                    }
+                            // Termux Node.js Status
+                            Surface(
+                                modifier = Modifier.weight(1f),
+                                shape = RoundedCornerShape(10.dp),
+                                color = ElegantDarkBg.copy(alpha = 0.7f),
+                                border = BorderStroke(1.dp, if (isTermuxOnline) ElegantGreenActive.copy(alpha = 0.5f) else ElegantDarkBorder)
+                            ) {
+                                Row(
+                                    modifier = Modifier.padding(horizontal = 8.dp, vertical = 6.dp),
+                                    verticalAlignment = Alignment.CenterVertically
+                                ) {
+                                    Box(
+                                        modifier = Modifier
+                                            .size(7.dp)
+                                            .clip(CircleShape)
+                                            .background(if (isTermuxOnline) ElegantGreenActive else Color.Gray)
+                                    )
+                                    Spacer(modifier = Modifier.width(6.dp))
+                                    Text(
+                                        text = if (isTermuxOnline) "Termux : En Ligne" else "Termux : En attente",
+                                        style = MaterialTheme.typography.labelSmall,
+                                        fontWeight = FontWeight.Bold,
+                                        color = if (isTermuxOnline) ElegantGreenActive else ElegantTextSecondary,
+                                        maxLines = 1
+                                    )
                                 }
+                            }
+                        }
+
+                        Spacer(modifier = Modifier.height(10.dp))
+
+                        // Controls Row
+                        Row(
+                            modifier = Modifier.fillMaxWidth(),
+                            horizontalArrangement = Arrangement.spacedBy(8.dp),
+                            verticalAlignment = Alignment.CenterVertically
+                        ) {
+                            // Launch Termux Button
+                            Button(
+                                onClick = {
+                                    clipboardManager.setText(AnnotatedString(NodeJsBridgeScript.TERMUX_ONE_LINER))
+                                    copiedNotice = "Commande copiée ! Ouverture de Termux..."
+                                    TermuxSyncEngine.openTermux(context)
+                                },
+                                modifier = Modifier.weight(1.3f),
+                                shape = RoundedCornerShape(10.dp),
+                                colors = ButtonDefaults.buttonColors(containerColor = WhatsAppGreen, contentColor = Color.White)
+                            ) {
+                                Icon(Icons.Default.Terminal, contentDescription = null, modifier = Modifier.size(16.dp))
+                                Spacer(modifier = Modifier.width(4.dp))
+                                Text("Lancer Termux", fontSize = 11.sp, fontWeight = FontWeight.Bold, maxLines = 1, softWrap = false)
+                            }
+
+                            // Server Start / Stop Button
+                            if (isBridgeRunning) {
+                                OutlinedButton(
+                                    onClick = { viewModel.stopBridge() },
+                                    modifier = Modifier.weight(1f),
+                                    shape = RoundedCornerShape(10.dp),
+                                    border = BorderStroke(1.dp, ElegantRedAlert.copy(alpha = 0.8f))
+                                ) {
+                                    Text("Arrêter", color = ElegantRedAlert, fontSize = 11.sp, fontWeight = FontWeight.Bold, maxLines = 1, softWrap = false)
+                                }
+                            } else {
+                                Button(
+                                    onClick = { viewModel.startBridge(8081) },
+                                    modifier = Modifier.weight(1f),
+                                    shape = RoundedCornerShape(10.dp),
+                                    colors = ButtonDefaults.buttonColors(containerColor = ElegantPurpleAccent)
+                                ) {
+                                    Text("Démarrer", fontSize = 11.sp, color = ElegantPurpleOnAccent, fontWeight = FontWeight.Bold, maxLines = 1, softWrap = false)
+                                }
+                            }
+
+                            // Sync Button
+                            IconButton(
+                                onClick = {
+                                    viewModel.syncWithTermux()
+                                    copiedNotice = "Synchronisation Termux effectuée"
+                                },
+                                modifier = Modifier
+                                    .size(38.dp)
+                                    .clip(RoundedCornerShape(10.dp))
+                                    .background(ElegantDarkBg)
+                                    .border(1.dp, ElegantDarkBorder, RoundedCornerShape(10.dp))
+                            ) {
+                                Icon(Icons.Default.Sync, contentDescription = "Sync", tint = ElegantPurpleAccent, modifier = Modifier.size(18.dp))
                             }
                         }
                     }
@@ -310,13 +390,31 @@ fun InstancesScreen(
                             InstanceCard(
                                 instance = instance,
                                 assignedAgent = assignedAgent,
-                                onStart = { viewModel.startInstance(instance) },
+                                onStart = {
+                                    viewModel.startInstance(instance)
+                                    clipboardManager.setText(AnnotatedString(NodeJsBridgeScript.FAST_UPDATE_COMMAND))
+                                    copiedNotice = "Instance lancée ! Commande copiée."
+                                },
                                 onDisconnect = { viewModel.disconnectInstance(instance.id) },
                                 onDelete = { viewModel.deleteInstance(instance.id) },
                                 onShowQr = { activeQrInstance = instance },
                                 onShowPairing = { activePairingCodeInstance = instance },
                                 onOpenSimulator = { onOpenSimulatorForInstance(instance.id) },
-                                onOpenBindDialog = { bindingInstance = instance }
+                                onOpenBindDialog = { bindingInstance = instance },
+                                onForceConnected = {
+                                    viewModel.forceInstanceConnected(instance.id)
+                                    copiedNotice = "Statut validé : CONNECTÉ !"
+                                },
+                                onLaunchTermux = {
+                                    clipboardManager.setText(AnnotatedString(NodeJsBridgeScript.TERMUX_ONE_LINER))
+                                    copiedNotice = "Commande copiée ! Lancement de Termux..."
+                                    TermuxSyncEngine.openTermux(context)
+                                },
+                                onUpdateServerScript = {
+                                    clipboardManager.setText(AnnotatedString(NodeJsBridgeScript.FAST_UPDATE_COMMAND))
+                                    copiedNotice = "Commande de mise à jour copiée ! Lancement de Termux..."
+                                    TermuxSyncEngine.openTermux(context)
+                                }
                             )
                         }
                     }
@@ -954,7 +1052,10 @@ fun InstanceCard(
     onShowQr: () -> Unit,
     onShowPairing: () -> Unit,
     onOpenSimulator: () -> Unit,
-    onOpenBindDialog: () -> Unit
+    onOpenBindDialog: () -> Unit,
+    onForceConnected: () -> Unit,
+    onLaunchTermux: () -> Unit,
+    onUpdateServerScript: () -> Unit
 ) {
     val isConnected = instance.status == "CONNECTED"
     val isQrReady = instance.status == "QR_READY"
@@ -1029,6 +1130,77 @@ fun InstanceCard(
             )
 
             Spacer(modifier = Modifier.height(10.dp))
+
+            // Force Connected Helper if not connected yet
+            if (!isConnected) {
+                Surface(
+                    modifier = Modifier
+                        .fillMaxWidth()
+                        .clickable { onForceConnected() },
+                    shape = RoundedCornerShape(12.dp),
+                    color = ElegantGreenActive.copy(alpha = 0.12f),
+                    border = BorderStroke(1.dp, ElegantGreenActive.copy(alpha = 0.6f))
+                ) {
+                    Row(
+                        modifier = Modifier.padding(horizontal = 12.dp, vertical = 8.dp),
+                        verticalAlignment = Alignment.CenterVertically,
+                        horizontalArrangement = Arrangement.SpaceBetween
+                    ) {
+                        Row(verticalAlignment = Alignment.CenterVertically, modifier = Modifier.weight(1f)) {
+                            Icon(Icons.Default.CheckCircle, contentDescription = null, tint = ElegantGreenActive, modifier = Modifier.size(18.dp))
+                            Spacer(modifier = Modifier.width(8.dp))
+                            Column {
+                                Text(
+                                    text = "WhatsApp déjà connecté sur Termux ?",
+                                    style = MaterialTheme.typography.labelMedium,
+                                    fontWeight = FontWeight.Bold,
+                                    color = ElegantTextPrimary
+                                )
+                                Text(
+                                    text = "Touchez pour passer en statut CONNECTÉ",
+                                    style = MaterialTheme.typography.labelSmall,
+                                    color = ElegantGreenActive
+                                )
+                            }
+                        }
+                        Surface(
+                            shape = RoundedCornerShape(6.dp),
+                            color = ElegantGreenActive,
+                            contentColor = Color.Black
+                        ) {
+                            Text(
+                                text = "Valider",
+                                modifier = Modifier.padding(horizontal = 8.dp, vertical = 3.dp),
+                                style = MaterialTheme.typography.labelSmall,
+                                fontWeight = FontWeight.Bold
+                            )
+                        }
+                    }
+                }
+                Spacer(modifier = Modifier.height(8.dp))
+            } else {
+                Surface(
+                    modifier = Modifier.fillMaxWidth(),
+                    shape = RoundedCornerShape(10.dp),
+                    color = ElegantGreenActive.copy(alpha = 0.1f),
+                    border = BorderStroke(1.dp, ElegantGreenActive.copy(alpha = 0.3f))
+                ) {
+                    Row(
+                        modifier = Modifier.padding(horizontal = 10.dp, vertical = 6.dp),
+                        verticalAlignment = Alignment.CenterVertically
+                    ) {
+                        Icon(Icons.Default.CheckCircle, contentDescription = null, tint = ElegantGreenActive, modifier = Modifier.size(15.dp))
+                        Spacer(modifier = Modifier.width(6.dp))
+                        Text(
+                            text = "Connecté à Baileys • Interception active",
+                            style = MaterialTheme.typography.labelSmall,
+                            color = ElegantGreenActive,
+                            fontWeight = FontWeight.Bold
+                        )
+                    }
+                }
+                Spacer(modifier = Modifier.height(8.dp))
+            }
 
             // AI Model & Agent Binding Banner
             Surface(
@@ -1142,48 +1314,66 @@ fun InstanceCard(
 
             Spacer(modifier = Modifier.height(8.dp))
 
-            // Action Row 2: Secondary actions (Brancher IA, QR Code, Code, Delete)
+            // Action Row 2: Secondary actions (Brancher IA, Termux Helper, QR/Code, Delete)
             Row(
                 modifier = Modifier.fillMaxWidth(),
-                horizontalArrangement = Arrangement.spacedBy(8.dp)
+                horizontalArrangement = Arrangement.spacedBy(6.dp)
             ) {
                 OutlinedButton(
                     onClick = onOpenBindDialog,
                     modifier = Modifier.weight(1f),
-                    shape = RoundedCornerShape(12.dp),
+                    shape = RoundedCornerShape(10.dp),
                     border = BorderStroke(1.dp, ElegantPurpleAccent.copy(alpha = 0.5f))
                 ) {
-                    Icon(Icons.Default.Link, contentDescription = null, tint = ElegantPurpleAccent, modifier = Modifier.size(16.dp))
+                    Icon(Icons.Default.Link, contentDescription = null, tint = ElegantPurpleAccent, modifier = Modifier.size(15.dp))
                     Spacer(modifier = Modifier.width(4.dp))
                     Text("Brancher IA", color = ElegantPurpleAccent, fontSize = 11.sp, fontWeight = FontWeight.SemiBold, maxLines = 1, softWrap = false)
+                }
+
+                // Launch Termux Button
+                OutlinedButton(
+                    onClick = onLaunchTermux,
+                    shape = RoundedCornerShape(10.dp),
+                    border = BorderStroke(1.dp, WhatsAppGreen.copy(alpha = 0.6f))
+                ) {
+                    Icon(Icons.Default.Terminal, contentDescription = "Termux", tint = WhatsAppGreen, modifier = Modifier.size(16.dp))
+                }
+
+                // Update server.js Button
+                OutlinedButton(
+                    onClick = onUpdateServerScript,
+                    shape = RoundedCornerShape(10.dp),
+                    border = BorderStroke(1.dp, EdgeAiCyan.copy(alpha = 0.6f))
+                ) {
+                    Icon(Icons.Default.Refresh, contentDescription = "Maj Script", tint = EdgeAiCyan, modifier = Modifier.size(16.dp))
                 }
 
                 if (isQrReady || (!isConnected && instance.pairingMethod == "QR_CODE")) {
                     OutlinedButton(
                         onClick = onShowQr,
-                        shape = RoundedCornerShape(12.dp),
+                        shape = RoundedCornerShape(10.dp),
                         border = BorderStroke(1.dp, ElegantPurpleAccent.copy(alpha = 0.6f))
                     ) {
-                        Icon(Icons.Default.QrCode, contentDescription = "QR Code", tint = ElegantPurpleAccent, modifier = Modifier.size(18.dp))
+                        Icon(Icons.Default.QrCode, contentDescription = "QR Code", tint = ElegantPurpleAccent, modifier = Modifier.size(16.dp))
                     }
                 }
 
                 if (isPairingCode || (!isConnected && instance.pairingMethod == "PAIRING_CODE")) {
                     OutlinedButton(
                         onClick = onShowPairing,
-                        shape = RoundedCornerShape(12.dp),
+                        shape = RoundedCornerShape(10.dp),
                         border = BorderStroke(1.dp, ElegantPurpleAccent.copy(alpha = 0.6f))
                     ) {
-                        Text("Code", color = ElegantPurpleAccent, fontWeight = FontWeight.Bold, maxLines = 1, softWrap = false)
+                        Text("Code", color = ElegantPurpleAccent, fontWeight = FontWeight.Bold, fontSize = 11.sp, maxLines = 1, softWrap = false)
                     }
                 }
 
                 OutlinedButton(
                     onClick = onDelete,
-                    shape = RoundedCornerShape(12.dp),
+                    shape = RoundedCornerShape(10.dp),
                     border = BorderStroke(1.dp, ElegantDarkBorder)
                 ) {
-                    Icon(Icons.Default.Delete, contentDescription = "Supprimer", tint = ElegantTextSecondary, modifier = Modifier.size(18.dp))
+                    Icon(Icons.Default.Delete, contentDescription = "Supprimer", tint = ElegantTextSecondary, modifier = Modifier.size(16.dp))
                 }
             }
         }

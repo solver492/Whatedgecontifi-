@@ -81,6 +81,7 @@ import androidx.compose.ui.Modifier
 import androidx.compose.ui.draw.clip
 import androidx.compose.ui.graphics.Color
 import androidx.compose.ui.platform.LocalClipboardManager
+import androidx.compose.ui.platform.LocalContext
 import androidx.compose.ui.platform.testTag
 import androidx.compose.ui.text.AnnotatedString
 import androidx.compose.ui.text.font.FontFamily
@@ -94,6 +95,7 @@ import com.example.data.local.entity.WebhookConfigEntity
 import com.example.data.local.entity.WhatsAppInstanceEntity
 import com.example.data.local.entity.WhatsAppMessageEntity
 import com.example.domain.baileys.NodeJsBridgeScript
+import com.example.domain.baileys.TermuxSyncEngine
 import com.example.domain.engine.EdgeModelCatalogItem
 import com.example.ui.MainViewModel
 import java.text.SimpleDateFormat
@@ -207,7 +209,10 @@ fun LiveChatSimulator(
     val isSimulating by viewModel.isSimulatingReply.collectAsState()
     val agents by viewModel.agents.collectAsState()
     val selectableModels by viewModel.allSelectableModels.collectAsState()
+    val isTermuxOnline by viewModel.isTermuxOnline.collectAsState()
+    val bridgePort by viewModel.bridgePort.collectAsState()
 
+    val context = LocalContext.current
     val clipboardManager = LocalClipboardManager.current
     val timeFormat = remember { SimpleDateFormat("HH:mm", Locale.getDefault()) }
 
@@ -276,7 +281,7 @@ fun LiveChatSimulator(
     ) {
         Spacer(modifier = Modifier.height(10.dp))
 
-        // Top Row: Instance selector dropdown & clear button
+        // Top Row: Instance selector dropdown, Sync button & clear button
         Row(
             modifier = Modifier.fillMaxWidth(),
             verticalAlignment = Alignment.CenterVertically,
@@ -345,6 +350,25 @@ fun LiveChatSimulator(
                 }
             }
 
+            // Sync with Termux button
+            IconButton(
+                onClick = {
+                    viewModel.syncWithTermux()
+                    feedbackToast = "Synchronisation Termux lancée..."
+                },
+                modifier = Modifier
+                    .size(46.dp)
+                    .clip(RoundedCornerShape(14.dp))
+                    .background(if (isTermuxOnline) ElegantGreenActive.copy(alpha = 0.2f) else ElegantDarkSurfaceVariant)
+                    .border(1.dp, if (isTermuxOnline) ElegantGreenActive.copy(alpha = 0.6f) else ElegantDarkBorder, RoundedCornerShape(14.dp))
+            ) {
+                Icon(
+                    imageVector = Icons.Default.Sync,
+                    contentDescription = "Sync Termux",
+                    tint = if (isTermuxOnline) ElegantGreenActive else ElegantPurpleAccent
+                )
+            }
+
             // Quick Clear all messages button
             IconButton(
                 onClick = { showClearConfirmation = true },
@@ -359,6 +383,49 @@ fun LiveChatSimulator(
                     contentDescription = "Tout effacer",
                     tint = ElegantRedAlert
                 )
+            }
+        }
+
+        Spacer(modifier = Modifier.height(8.dp))
+
+        // Live Termux status banner
+        Surface(
+            shape = RoundedCornerShape(12.dp),
+            color = if (isTermuxOnline) ElegantGreenActive.copy(alpha = 0.12f) else ElegantDarkSurface,
+            border = BorderStroke(1.dp, if (isTermuxOnline) ElegantGreenActive.copy(alpha = 0.5f) else ElegantDarkBorder),
+            modifier = Modifier.fillMaxWidth()
+        ) {
+            Row(
+                modifier = Modifier.padding(horizontal = 12.dp, vertical = 7.dp),
+                verticalAlignment = Alignment.CenterVertically,
+                horizontalArrangement = Arrangement.SpaceBetween
+            ) {
+                Row(verticalAlignment = Alignment.CenterVertically, modifier = Modifier.weight(1f)) {
+                    Box(
+                        modifier = Modifier
+                            .size(8.dp)
+                            .clip(CircleShape)
+                            .background(if (isTermuxOnline) ElegantGreenActive else Color.Gray)
+                    )
+                    Spacer(modifier = Modifier.width(8.dp))
+                    Text(
+                        text = if (isTermuxOnline) "Termux Baileys Connecté • ${filteredMessages.size} messages reçus" else "Termux en attente • Port app :$bridgePort",
+                        style = MaterialTheme.typography.labelSmall,
+                        fontWeight = FontWeight.Bold,
+                        color = if (isTermuxOnline) ElegantGreenActive else ElegantTextSecondary,
+                        maxLines = 1,
+                        overflow = TextOverflow.Ellipsis
+                    )
+                }
+                TextButton(
+                    onClick = {
+                        viewModel.syncWithTermux()
+                        feedbackToast = "Actualisation..."
+                    },
+                    modifier = Modifier.height(28.dp)
+                ) {
+                    Text("Actualiser", fontSize = 11.sp, color = if (isTermuxOnline) ElegantGreenActive else EdgeAiCyan, fontWeight = FontWeight.Bold)
+                }
             }
         }
 
@@ -716,7 +783,43 @@ fun LiveChatSimulator(
 
                         Spacer(modifier = Modifier.height(18.dp))
 
+                        // Fast Sync with Termux button
                         Button(
+                            onClick = {
+                                viewModel.syncWithTermux()
+                                feedbackToast = "Synchronisation Termux effectuée !"
+                            },
+                            shape = RoundedCornerShape(12.dp),
+                            colors = ButtonDefaults.buttonColors(containerColor = WhatsAppGreen, contentColor = Color.White),
+                            modifier = Modifier.fillMaxWidth(0.9f)
+                        ) {
+                            Icon(Icons.Default.Sync, contentDescription = null, modifier = Modifier.size(18.dp))
+                            Spacer(modifier = Modifier.width(8.dp))
+                            Text("Synchroniser les Messages Termux", fontWeight = FontWeight.Bold, maxLines = 1, softWrap = false)
+                        }
+
+                        Spacer(modifier = Modifier.height(8.dp))
+
+                        // Launch Termux Button
+                        OutlinedButton(
+                            onClick = {
+                                clipboardManager.setText(AnnotatedString(NodeJsBridgeScript.TERMUX_ONE_LINER))
+                                feedbackToast = "Commande copiée ! Lancement de Termux..."
+                                TermuxSyncEngine.openTermux(context)
+                            },
+                            shape = RoundedCornerShape(12.dp),
+                            border = BorderStroke(1.dp, WhatsAppGreen.copy(alpha = 0.7f)),
+                            modifier = Modifier.fillMaxWidth(0.9f)
+                        ) {
+                            Icon(Icons.Default.Terminal, contentDescription = null, tint = WhatsAppGreen, modifier = Modifier.size(18.dp))
+                            Spacer(modifier = Modifier.width(8.dp))
+                            Text("Lancer Baileys sur Termux", color = WhatsAppGreen, fontWeight = FontWeight.Bold, maxLines = 1, softWrap = false)
+                        }
+
+                        Spacer(modifier = Modifier.height(8.dp))
+
+                        // Simulate test message
+                        OutlinedButton(
                             onClick = {
                                 val targetInstId = currentInstance?.id ?: instances.firstOrNull()?.id ?: "inst_paris_01"
                                 viewModel.simulateCustomerMessage(
@@ -727,26 +830,12 @@ fun LiveChatSimulator(
                                 )
                             },
                             shape = RoundedCornerShape(12.dp),
-                            colors = ButtonDefaults.buttonColors(containerColor = ElegantPurpleAccent, contentColor = ElegantPurpleOnAccent)
+                            border = BorderStroke(1.dp, ElegantPurpleAccent.copy(alpha = 0.6f)),
+                            modifier = Modifier.fillMaxWidth(0.9f)
                         ) {
-                            Icon(Icons.Default.PlayArrow, contentDescription = null, modifier = Modifier.size(18.dp))
-                            Spacer(modifier = Modifier.width(6.dp))
-                            Text("Tester l'IA immédiatement", fontWeight = FontWeight.Bold, maxLines = 1, softWrap = false)
-                        }
-
-                        Spacer(modifier = Modifier.height(10.dp))
-
-                        OutlinedButton(
-                            onClick = {
-                                clipboardManager.setText(AnnotatedString(NodeJsBridgeScript.FAST_UPDATE_COMMAND))
-                                feedbackToast = "Commande Termux copiée !"
-                            },
-                            shape = RoundedCornerShape(12.dp),
-                            border = BorderStroke(1.dp, ElegantDarkBorder)
-                        ) {
-                            Icon(Icons.Default.ContentCopy, contentDescription = null, tint = ElegantTextSecondary, modifier = Modifier.size(16.dp))
-                            Spacer(modifier = Modifier.width(6.dp))
-                            Text("Copier Commande Termux", color = ElegantTextSecondary, fontSize = 12.sp, maxLines = 1, softWrap = false)
+                            Icon(Icons.Default.PlayArrow, contentDescription = null, tint = ElegantPurpleAccent, modifier = Modifier.size(18.dp))
+                            Spacer(modifier = Modifier.width(8.dp))
+                            Text("Simuler un message client de test", color = ElegantPurpleAccent, fontSize = 12.sp, maxLines = 1, softWrap = false)
                         }
                     }
                 }

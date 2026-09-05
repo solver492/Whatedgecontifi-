@@ -13,6 +13,7 @@ import com.example.data.local.entity.WhatsAppMessageEntity
 import com.example.domain.baileys.BaileysService
 import com.example.domain.baileys.LocalNodeBridgeServer
 import com.example.domain.baileys.LogType
+import com.example.domain.baileys.TermuxSyncEngine
 import com.example.domain.engine.AiEdgeQuantizerEngine
 import com.example.domain.engine.EdgeModelCatalogItem
 import com.example.domain.engine.EdgeQuantizedModelInfo
@@ -42,6 +43,11 @@ class MainViewModel(application: Application) : AndroidViewModel(application) {
     val baileysService = BaileysService(database)
     val modelManager = LocalModelManager(application)
     val bridgeServer = LocalNodeBridgeServer(database, baileysService)
+    val termuxSyncEngine = TermuxSyncEngine(database, baileysService, bridgeServer)
+
+    val isTermuxOnline = termuxSyncEngine.isTermuxOnline
+    val termuxPort = termuxSyncEngine.termuxPort
+    val lastSyncTimestamp = termuxSyncEngine.lastSyncTimestamp
 
     val downloadStates = modelManager.downloadStates
     val downloadedModels = modelManager.downloadedModels
@@ -85,20 +91,38 @@ class MainViewModel(application: Application) : AndroidViewModel(application) {
     }.stateIn(viewModelScope, SharingStarted.WhileSubscribed(5000), emptyList())
 
     init {
-        // Automatically start the local HTTP bridge on port 8080 for Termux / Node.js
-        bridgeServer.start(8080)
+        // Automatically start the local HTTP bridge on port 8081 for Termux / Node.js
+        bridgeServer.start(8081)
+        // Automatically start bi-directional polling with Termux
+        termuxSyncEngine.startPolling()
     }
 
     override fun onCleared() {
         super.onCleared()
+        termuxSyncEngine.stopPolling()
         bridgeServer.stop()
     }
 
     // Bridge Server controls
-    fun startBridge(port: Int = 8080) = bridgeServer.start(port)
+    fun startBridge(port: Int = 8081) = bridgeServer.start(port)
     fun stopBridge() = bridgeServer.stop()
-    fun restartBridge(port: Int = 8080) = bridgeServer.restart(port)
+    fun restartBridge(port: Int = 8081) = bridgeServer.restart(port)
     fun clearBridgeLogs() = bridgeServer.clearLogs()
+
+    // Termux Sync controls
+    fun syncWithTermux() = viewModelScope.launch {
+        termuxSyncEngine.pollTermuxStatus()
+        termuxSyncEngine.pullMessagesFromTermux()
+    }
+
+    fun forceInstanceConnected(instanceId: String) = viewModelScope.launch {
+        termuxSyncEngine.forceInstanceConnected(instanceId)
+    }
+
+    fun sendWhatsAppMessageViaTermux(remoteJid: String, text: String, onResult: ((Boolean) -> Unit)? = null) = viewModelScope.launch {
+        val success = termuxSyncEngine.sendWhatsAppMessage(remoteJid, text)
+        onResult?.invoke(success)
+    }
 
     // Model Download and Management
     fun downloadModel(item: EdgeModelCatalogItem) = modelManager.startDownload(item)
@@ -384,6 +408,13 @@ class MainViewModel(application: Application) : AndroidViewModel(application) {
                 timestamp = System.currentTimeMillis()
             )
             database.whatsAppMessageDao().insertMessage(msg)
+
+            // Attempt to deliver through Termux Baileys bridge if online
+            try {
+                termuxSyncEngine.sendWhatsAppMessage(remoteJid, text)
+            } catch (e: Exception) {
+                // Logged or handled gracefully
+            }
         }
     }
 

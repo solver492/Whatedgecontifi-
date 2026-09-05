@@ -56,39 +56,33 @@ class LocalNodeBridgeServer(
         _logs.value = emptyList()
     }
 
-    fun start(port: Int = 8080) {
+    fun start(port: Int = 8081) {
         if (_isRunning.value) return
         _serverPort.value = port
 
         serverJob = scope.launch {
             var boundSocket: ServerSocket? = null
-            var activePort = port
+            val portsToTry = listOf(port, 8080, 8082, 8085)
 
-            try {
-                boundSocket = ServerSocket(activePort)
-            } catch (e: Exception) {
-                // If port 8080 is in use, fallback to 8081
-                if (activePort == 8080) {
-                    try {
-                        activePort = 8081
-                        boundSocket = ServerSocket(activePort)
-                        log(LogType.INFO, "Port 8080 occupé, basculement automatique sur le port 8081.")
-                    } catch (e2: Exception) {
-                        log(LogType.ERROR, "Erreur démarrage serveur sur les ports 8080 et 8081 : ${e2.localizedMessage}")
-                        _isRunning.value = false
-                        return@launch
-                    }
-                } else {
-                    log(LogType.ERROR, "Erreur démarrage serveur sur le port $port : ${e.localizedMessage}")
-                    _isRunning.value = false
-                    return@launch
+            for (p in portsToTry) {
+                try {
+                    boundSocket = ServerSocket(p)
+                    _serverPort.value = p
+                    break
+                } catch (e: Exception) {
+                    // Try next candidate port
                 }
             }
 
+            if (boundSocket == null) {
+                log(LogType.ERROR, "Impossible de lier un port HTTP (8081, 8080, 8082).")
+                _isRunning.value = false
+                return@launch
+            }
+
             serverSocket = boundSocket
-            _serverPort.value = activePort
             _isRunning.value = true
-            log(LogType.SUCCESS, "Serveur HTTP Bridge démarré sur http://127.0.0.1:$activePort (Écoute Baileys)")
+            log(LogType.SUCCESS, "Serveur HTTP Bridge démarré sur http://127.0.0.1:${_serverPort.value} (Écoute Baileys)")
 
             while (_isRunning.value && serverSocket != null && !serverSocket!!.isClosed) {
                 try {
