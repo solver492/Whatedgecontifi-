@@ -128,7 +128,7 @@ Invite poliment le prospect à réserver un appel ou finaliser sa commande.""".t
                 isLocal = true,
                 isActive = true,
                 activationMode = "KEYWORDS",
-                keywordsCsv = "prix,tarif,tarifs,devis,offre,acheter,pack,reduction,prospect",
+                keywordsCsv = "prix,tarif,tarifs,devis,offre,offres,acheter,achat,pack,packs,vendre,vente,proposer,propose,catalogue,produit,produits,service,services,reduction,prospect",
                 scheduleStart = "08:00",
                 scheduleEnd = "20:00",
                 assignedInstanceIdsCsv = "inst-support-01,inst-sales-02",

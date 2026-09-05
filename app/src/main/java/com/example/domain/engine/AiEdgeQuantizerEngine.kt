@@ -85,6 +85,19 @@ object AiEdgeQuantizerEngine {
         )
     )
 
+    fun resolveModelDisplayName(modelId: String): String {
+        return availableModels.firstOrNull { it.id == modelId }?.name
+            ?: when {
+                modelId.contains("phi", ignoreCase = true) -> "Phi-3.5-mini"
+                modelId.contains("qwen", ignoreCase = true) -> "Qwen2.5 0.5B"
+                modelId.contains("llama", ignoreCase = true) -> "Llama-3.2 1B"
+                modelId.contains("gemma", ignoreCase = true) -> "Gemma-2 2B"
+                modelId.contains("smollm", ignoreCase = true) -> "SmolLM2 135M"
+                modelId.contains("gemini", ignoreCase = true) -> "Gemini 3.5 Flash"
+                else -> modelId
+            }
+    }
+
     /**
      * Executes local edge inference combining the agent's prompt, RAG knowledge sources,
      * customer query, and active MCP tools using EdgeNeuralReasoningEngine.
@@ -96,20 +109,23 @@ object AiEdgeQuantizerEngine {
         mcpTools: List<McpToolEntity>
     ): InferenceResult = withContext(Dispatchers.Default) {
         val activeSources = if (agent.ragEnabled) knowledgeSources else emptyList()
+        val modelDisplayName = resolveModelDisplayName(agent.modelId)
         val detailedOutput = EdgeNeuralReasoningEngine.generateInference(
             modelId = agent.modelId,
-            modelName = agent.name,
+            modelName = modelDisplayName,
             prompt = customerQuery,
             systemPrompt = agent.systemPrompt,
-            temperature = 0.7f,
+            temperature = agent.temperature,
             backend = "NPU Hexagon",
             knowledgeSources = activeSources,
-            mcpTools = mcpTools
+            mcpTools = mcpTools,
+            agentName = agent.name,
+            agentRole = agent.role
         )
 
         InferenceResult(
             replyText = detailedOutput.text,
-            modelUsed = "${agent.modelId} (${detailedOutput.backendUsed})",
+            modelUsed = "$modelDisplayName (${detailedOutput.backendUsed})",
             latencyMs = detailedOutput.latencyMs.coerceAtLeast(80),
             tokensGenerated = detailedOutput.tokensGenerated,
             ragSnippetsApplied = detailedOutput.ragSnippetsUsed,

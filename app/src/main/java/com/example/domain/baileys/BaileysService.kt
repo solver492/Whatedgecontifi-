@@ -211,10 +211,27 @@ class BaileysService(private val database: AppDatabase) {
         val textLower = messageText.lowercase(Locale.getDefault())
         val currentTimeStr = SimpleDateFormat("HH:mm", Locale.getDefault()).format(Date())
 
-        // 1. Keyword-based matching priority
+        // 1. Semantic Domain Priority: Sales / Offers / Pricing
+        val isSalesQuery = textLower.contains("vend") || textLower.contains("propos") ||
+                textLower.contains("prix") || textLower.contains("tarif") ||
+                textLower.contains("cout") || textLower.contains("coût") ||
+                textLower.contains("devis") || textLower.contains("offre") ||
+                textLower.contains("achet") || textLower.contains("catalog") ||
+                textLower.contains("produit") || textLower.contains("pack")
+
+        if (isSalesQuery) {
+            val commercialAgent = candidateAgents.firstOrNull {
+                it.role.equals("Commercial", ignoreCase = true) || it.name.contains("Vente", ignoreCase = true)
+            }
+            if (commercialAgent != null) {
+                return Pair(commercialAgent, "Aiguillage commercial (${commercialAgent.name})")
+            }
+        }
+
+        // 2. Keyword-based matching priority
         for (agent in candidateAgents) {
             if (agent.activationMode == "KEYWORDS" || agent.keywordsCsv.isNotBlank()) {
-                val keywords = agent.keywordsCsv.split(",").map { it.trim().lowercase(Locale.getDefault()) }.filter { it.isNotBlank() }
+                val keywords = agent.keywordsCsv.split(",").map { it.trim().lowercase(Locale.getDefault()) }.filter { it.isNotBlank() && it != "*" }
                 val matchedKeyword = keywords.firstOrNull { kw -> textLower.contains(kw) }
                 if (matchedKeyword != null) {
                     return Pair(agent, "Keyword trigger match: '$matchedKeyword'")

@@ -508,7 +508,9 @@ class LocalModelManager(private val context: Context) {
             prompt = prompt,
             systemPrompt = systemPrompt,
             temperature = temperature,
-            backend = backend
+            backend = backend,
+            agentName = modelName,
+            agentRole = "Assistant IA"
         )
 
         DeviceInferenceTestResult(
