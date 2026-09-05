@@ -15,7 +15,9 @@ const {
   default: makeWASocket,
   useMultiFileAuthState,
   DisconnectReason,
-  fetchLatestBaileysVersion
+  fetchLatestBaileysVersion,
+  fetchLatestWaWebVersion,
+  Browsers
 } = require('@whiskeysockets/baileys');
 const pino = require('pino');
 const qrcode = require('qrcode-terminal');
@@ -54,12 +56,12 @@ async function resolvePhoneNumber() {
   if (process.argv[2]) {
     const cleanArg = process.argv[2].replace(/[^0-9]/g, '');
     if (cleanArg.length >= 7) {
-      console.log('📌 Numéro WhatsApp fourni en ligne de commande : +' + cleanArg);
+      console.log('📌 Numéro WhatsApp fourni en ligne de commande : ' + cleanArg + ' (chiffres uniquement)');
       if (fs.existsSync(PHONE_FILE)) {
         try {
           const oldPhone = fs.readFileSync(PHONE_FILE, 'utf8').trim().replace(/[^0-9]/g, '');
           if (oldPhone && oldPhone !== cleanArg) {
-            console.log('🔄 Changement de numéro détecté (+' + oldPhone + ' -> +' + cleanArg + '). Réinitialisation...');
+            console.log('🔄 Changement de numéro détecté (' + oldPhone + ' -> ' + cleanArg + '). Réinitialisation...');
             if (fs.existsSync(AUTH_DIR)) fs.rmSync(AUTH_DIR, { recursive: true, force: true });
           }
         } catch (_) {}
@@ -84,7 +86,7 @@ async function resolvePhoneNumber() {
     if (fromApp) {
       const cleanApp = fromApp.replace(/[^0-9]/g, '');
       if (cleanApp.length >= 7) {
-        console.log('📱 Numéro WhatsApp récupéré depuis l\'application Android : +' + cleanApp);
+        console.log('📱 Numéro WhatsApp récupéré depuis l\'application Android : ' + cleanApp);
         savePhoneNumber(cleanApp);
         return cleanApp;
       }
@@ -165,7 +167,7 @@ async function triggerPairingCode(phoneToUse) {
     return;
   }
 
-  const cleanPhone = (phoneToUse || configuredPhoneNumber || '33773163772').replace(/[^0-9]/g, '');
+  const cleanPhone = String(phoneToUse || configuredPhoneNumber || '33773163772').replace(/[^0-9]/g, '').trim();
   if (!cleanPhone || cleanPhone.length < 7) {
     console.log('\n⚠️ Numéro WhatsApp non configuré pour le code d\'appairage.');
     console.log('👉 Entrez votre numéro ci-dessous ou relancez avec : node server.js <numéro>');
@@ -177,12 +179,15 @@ async function triggerPairingCode(phoneToUse) {
   isPairingRequested = true;
   savePhoneNumber(cleanPhone);
 
-  console.log(`\n⏳ Demande du code d'appairage à WhatsApp pour le numéro : +${'$'}{cleanPhone}...`);
+  console.log('\n⏳ Demande du code d\'appairage à WhatsApp pour le numéro : ' + cleanPhone + ' (sans signe +)...');
 
   try {
-    // Wait a brief delay for socket initialization
-    await new Promise(resolve => setTimeout(resolve, 2200));
-    if (!sock) return;
+    // Wait until socket is ready
+    await new Promise(resolve => setTimeout(resolve, 2000));
+    if (!sock) {
+      isPairingRequested = false;
+      return;
+    }
 
     const rawCode = await sock.requestPairingCode(cleanPhone);
     const formattedCode = rawCode && rawCode.length === 8
@@ -198,6 +203,7 @@ async function triggerPairingCode(phoneToUse) {
     console.log(`║                    👉   ${'$'}{formattedCode.padEnd(10)}   👈                    ║`);
     console.log('║                                                                  ║');
     console.log('╚══════════════════════════════════════════════════════════════════╝');
+    console.log('📞 Numéro lié : ' + cleanPhone + ' (chiffres purs, aucun signe +)');
     console.log('\n📲 COMMENT L\'UTILISER SUR VOTRE SMARTPHONE :');
     console.log(' 1. Ouvrez WhatsApp sur votre téléphone');
     console.log(' 2. Touchez les 3 points ⋮ (ou Réglages) > Appareils connectés');
@@ -210,12 +216,12 @@ async function triggerPairingCode(phoneToUse) {
     await sendToApp('/api/event', {
       instanceId: INSTANCE_ID,
       event: 'pairing_code',
-      pairingCode: formattedCode
+      pairingCode: formattedCode,
+      phoneNumber: cleanPhone
     });
   } catch (err) {
     isPairingRequested = false;
     console.error('❌ Impossible d\'obtenir le code d\'appairage :', err.message);
-    console.log('💡 Astuce: Vérifiez que le numéro commence bien par l\'indicatif sans le signe + (ex: 33 pour la France, 225 pour la Côte d\'Ivoire, etc.).');
   }
 }
 
@@ -361,28 +367,50 @@ async function startBaileys() {
   configuredPhoneNumber = await resolvePhoneNumber();
   if (configuredPhoneNumber) {
     savePhoneNumber(configuredPhoneNumber);
-    console.log(`📞 Numéro WhatsApp configuré : +${'$'}{configuredPhoneNumber}`);
+    console.log(`📞 Numéro WhatsApp configuré : ${'$'}{configuredPhoneNumber} (chiffres uniquement)`);
   }
 
   const { state, saveCreds } = await useMultiFileAuthState(AUTH_DIR);
-  const { version } = await fetchLatestBaileysVersion();
+
+  // Fetch WhatsApp Web protocol version
+  let version = [2, 3000, 1015901307];
+  try {
+    const wa = await fetchLatestWaWebVersion();
+    if (wa && wa.version) version = wa.version;
+  } catch (_) {
+    try {
+      const b = await fetchLatestBaileysVersion();
+      if (b && b.version) version = b.version;
+    } catch (_) {}
+  }
+
+  // Use canonical browser signature accepted by WhatsApp for pairing codes
+  const browserConfig = (typeof Browsers !== 'undefined' && Browsers && Browsers.ubuntu)
+    ? Browsers.ubuntu('Chrome')
+    : ['Ubuntu', 'Chrome', '20.0.04'];
 
   sock = makeWASocket({
     version,
     auth: state,
     logger: pino({ level: 'silent' }),
     printQRInTerminal: false,
-    browser: ['AI Edge WhatsApp', 'Chrome', '124.0.0']
+    browser: browserConfig,
+    syncFullHistory: false,
+    generateHighQualityLinkPreview: false,
+    markOnlineOnConnect: true,
+    connectTimeoutMs: 60000,
+    defaultQueryTimeoutMs: 60000,
+    keepAliveIntervalMs: 25000
   });
 
   sock.ev.on('creds.update', saveCreds);
 
   // If phone number is available, request pairing code
-  if (configuredPhoneNumber && !sock.authState.creds.registered) {
+  if (USE_PAIRING_CODE && configuredPhoneNumber && !sock.authState.creds.registered) {
     setTimeout(() => {
       triggerPairingCode(configuredPhoneNumber);
-    }, 1500);
-  } else if (!configuredPhoneNumber && !sock.authState.creds.registered) {
+    }, 2000);
+  } else if (USE_PAIRING_CODE && !configuredPhoneNumber && !sock.authState.creds.registered) {
     setTimeout(promptUserForPhone, 1200);
   }
 
@@ -396,9 +424,8 @@ async function startBaileys() {
         console.log('\n📱 NOUVEAU QR CODE WHATSAPP :');
         qrcode.generate(qr, { small: true });
       } else {
-        // Pairing code mode is active: DO NOT print the QR code in terminal!
-        console.log('ℹ️ Code d\'appairage à 8 chiffres demandé (QR Code terminal masqué)...');
-        if (!isPairingRequested) {
+        // Pairing code mode is active
+        if (!isPairingRequested && configuredPhoneNumber && !sock.authState.creds.registered) {
           triggerPairingCode(configuredPhoneNumber);
         }
       }
@@ -411,15 +438,16 @@ async function startBaileys() {
 
     if (connection === 'close') {
       authStatus = 'DISCONNECTED';
-      isPairingRequested = false;
-      const shouldReconnect = lastDisconnect?.error?.output?.statusCode !== DisconnectReason.loggedOut;
-      console.log(`❌ Connexion WhatsApp fermée. Reconnexion : ${'$'}{shouldReconnect}`);
+      const statusCode = lastDisconnect?.error?.output?.statusCode;
+      const shouldReconnect = statusCode !== DisconnectReason.loggedOut;
+      console.log(`❌ Connexion fermée (code: ${'$'}{statusCode || 'non spécifié'}). Reconnexion : ${'$'}{shouldReconnect}`);
       await sendToApp('/api/event', {
         instanceId: INSTANCE_ID,
         event: 'connection.update',
         status: 'DISCONNECTED'
       });
       if (shouldReconnect) {
+        isPairingRequested = false;
         setTimeout(startBaileys, 3000);
       }
     } else if (connection === 'open') {
@@ -501,31 +529,31 @@ startBaileys().catch(console.error);
     /**
      * 1-line Termux fast update command that replaces server.js with the latest version and starts it
      */
-    const val FAST_UPDATE_COMMAND = "cd ~/wa-bridge && curl -s http://127.0.0.1:8081/server.js > server.js 2>/dev/null || curl -s http://127.0.0.1:8080/server.js > server.js ; node server.js 33773163772"
+    const val FAST_UPDATE_COMMAND = "killall node 2>/dev/null ; cd ~/wa-bridge && rm -rf auth_info_baileys phone.txt auth_* && (curl -s http://127.0.0.1:8081/server.js > server.js 2>/dev/null || curl -s http://127.0.0.1:8080/server.js > server.js) && node server.js 33773163772"
 
     /**
      * Termux command to reset auth and request 8-digit pairing code
      */
-    const val PAIRING_CODE_COMMAND = "cd ~/wa-bridge && rm -rf auth_info_baileys phone.txt auth_* && (curl -s http://127.0.0.1:8081/server.js > server.js 2>/dev/null || curl -s http://127.0.0.1:8080/server.js > server.js) && node server.js 33773163772"
+    const val PAIRING_CODE_COMMAND = "killall node 2>/dev/null ; cd ~/wa-bridge && rm -rf auth_info_baileys phone.txt auth_* && (curl -s http://127.0.0.1:8081/server.js > server.js 2>/dev/null || curl -s http://127.0.0.1:8080/server.js > server.js) && node server.js 33773163772"
 
     fun buildPairingCommand(phoneNumber: String = DEFAULT_PHONE_NUMBER): String {
         val clean = phoneNumber.replace(Regex("[^0-9]"), "").ifBlank { DEFAULT_PHONE_NUMBER }
-        return "cd ~/wa-bridge && rm -rf auth_info_baileys phone.txt auth_* && (curl -s http://127.0.0.1:8081/server.js > server.js 2>/dev/null || curl -s http://127.0.0.1:8080/server.js > server.js) && node server.js $clean"
+        return "killall node 2>/dev/null ; cd ~/wa-bridge && rm -rf auth_info_baileys phone.txt auth_* && (curl -s http://127.0.0.1:8081/server.js > server.js 2>/dev/null || curl -s http://127.0.0.1:8080/server.js > server.js) && node server.js $clean"
     }
 
     fun buildTermuxOneLiner(phoneNumber: String = DEFAULT_PHONE_NUMBER): String {
         val clean = phoneNumber.replace(Regex("[^0-9]"), "").ifBlank { DEFAULT_PHONE_NUMBER }
-        return "pkg update -y && pkg install -y nodejs curl && mkdir -p ~/wa-bridge && cd ~/wa-bridge && rm -rf auth_info_baileys phone.txt auth_* && curl -s http://127.0.0.1:8081/server.js > server.js && npm install --no-audit @whiskeysockets/baileys pino qrcode-terminal && node server.js $clean"
+        return "killall node 2>/dev/null ; pkg update -y && pkg install -y nodejs curl && mkdir -p ~/wa-bridge && cd ~/wa-bridge && rm -rf auth_info_baileys phone.txt auth_* && curl -s http://127.0.0.1:8081/server.js > server.js && npm install --no-audit @whiskeysockets/baileys pino qrcode-terminal && node server.js $clean"
     }
 
     fun buildFastUpdateCommand(phoneNumber: String = DEFAULT_PHONE_NUMBER): String {
         val clean = phoneNumber.replace(Regex("[^0-9]"), "").ifBlank { DEFAULT_PHONE_NUMBER }
-        return "cd ~/wa-bridge && (curl -s http://127.0.0.1:8081/server.js > server.js 2>/dev/null || curl -s http://127.0.0.1:8080/server.js > server.js) && node server.js $clean"
+        return "killall node 2>/dev/null ; cd ~/wa-bridge && rm -rf auth_info_baileys phone.txt auth_* && (curl -s http://127.0.0.1:8081/server.js > server.js 2>/dev/null || curl -s http://127.0.0.1:8080/server.js > server.js) && node server.js $clean"
     }
 
     /**
      * 1-line Termux complete initialization command
      */
-    const val TERMUX_ONE_LINER = "pkg update -y && pkg install -y nodejs curl && mkdir -p ~/wa-bridge && cd ~/wa-bridge && rm -rf auth_info_baileys phone.txt auth_* && curl -s http://127.0.0.1:8081/server.js > server.js && npm install --no-audit @whiskeysockets/baileys pino qrcode-terminal && node server.js 33773163772"
+    const val TERMUX_ONE_LINER = "killall node 2>/dev/null ; pkg update -y && pkg install -y nodejs curl && mkdir -p ~/wa-bridge && cd ~/wa-bridge && rm -rf auth_info_baileys phone.txt auth_* && curl -s http://127.0.0.1:8081/server.js > server.js && npm install --no-audit @whiskeysockets/baileys pino qrcode-terminal && node server.js 33773163772"
 }
 

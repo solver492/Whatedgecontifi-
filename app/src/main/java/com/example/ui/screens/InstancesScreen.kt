@@ -617,7 +617,7 @@ fun TermuxGuideSection(
     onCopyText: (String, String) -> Unit
 ) {
     val cleanPhone = phoneNumber.replace(Regex("[^0-9]"), "").ifBlank { "33773163772" }
-    val termuxOneLiner = "pkg update -y && pkg install -y nodejs curl && mkdir -p ~/wa-bridge && cd ~/wa-bridge && rm -rf auth_info_baileys phone.txt auth_* && (curl -s http://127.0.0.1:$bridgePort/server.js > server.js 2>/dev/null || curl -s http://127.0.0.1:8080/server.js > server.js) && npm install --no-audit @whiskeysockets/baileys pino qrcode-terminal && node server.js $cleanPhone"
+    val termuxOneLiner = "killall node 2>/dev/null ; pkg update -y && pkg install -y nodejs curl && mkdir -p ~/wa-bridge && cd ~/wa-bridge && rm -rf auth_info_baileys phone.txt auth_* && (curl -s http://127.0.0.1:$bridgePort/server.js > server.js 2>/dev/null || curl -s http://127.0.0.1:8080/server.js > server.js) && npm install --no-audit @whiskeysockets/baileys pino qrcode-terminal && node server.js $cleanPhone"
 
     Column(verticalArrangement = Arrangement.spacedBy(14.dp)) {
         // Status Card
@@ -693,7 +693,7 @@ fun TermuxGuideSection(
                             color = ElegantTextPrimary
                         )
                         Text(
-                            text = "Pour le numéro +$cleanPhone (code à 8 chiffres)",
+                            text = "Pour le numéro $cleanPhone (code à 8 chiffres sans aucun signe +)",
                             style = MaterialTheme.typography.bodySmall,
                             color = ElegantPurpleSecondary
                         )
@@ -765,7 +765,7 @@ fun TermuxGuideSection(
                     stepNumber = "2",
                     title = "Nettoyer et télécharger le script serveur",
                     description = "Prépare le dossier ~/wa-bridge et télécharge la dernière version de server.js.",
-                    command = "mkdir -p ~/wa-bridge && cd ~/wa-bridge && rm -rf auth_info_baileys phone.txt auth_* && (curl -s http://127.0.0.1:$bridgePort/server.js > server.js 2>/dev/null || curl -s http://127.0.0.1:8080/server.js > server.js)",
+                    command = "killall node 2>/dev/null ; mkdir -p ~/wa-bridge && cd ~/wa-bridge && rm -rf auth_info_baileys phone.txt auth_* && (curl -s http://127.0.0.1:$bridgePort/server.js > server.js 2>/dev/null || curl -s http://127.0.0.1:8080/server.js > server.js)",
                     onCopy = { onCopyText(it, "Étape 2 copiée !") }
                 )
 
@@ -1592,9 +1592,9 @@ fun CreateInstanceDialog(
 
                 OutlinedTextField(
                     value = phone,
-                    onValueChange = { phone = it },
-                    label = { Text("Numéro WhatsApp") },
-                    placeholder = { Text("Ex: +33 7 12 34 56 78") },
+                    onValueChange = { phone = it.replace(Regex("[^0-9]"), "") },
+                    label = { Text("Numéro WhatsApp (chiffres sans +)") },
+                    placeholder = { Text("Ex: 33773163772") },
                     shape = RoundedCornerShape(14.dp),
                     modifier = Modifier.fillMaxWidth().testTag("instance_phone_input")
                 )
@@ -1624,7 +1624,8 @@ fun CreateInstanceDialog(
             Button(
                 onClick = {
                     if (name.isNotBlank()) {
-                        onCreate(name, phone.ifEmpty { "+33 7 00 00 00 00" }, pairingMethod, bridgeUrl)
+                        val cleanPhone = phone.replace(Regex("[^0-9]"), "").ifBlank { "33773163772" }
+                        onCreate(name, cleanPhone, pairingMethod, bridgeUrl)
                     }
                 },
                 shape = RoundedCornerShape(12.dp),
@@ -1692,10 +1693,11 @@ fun PairingCodeDialog(
                 OutlinedTextField(
                     value = phoneNumber,
                     onValueChange = {
-                        phoneNumber = it
-                        onSavePhone?.invoke(it)
+                        val clean = it.replace(Regex("[^0-9]"), "")
+                        phoneNumber = clean
+                        onSavePhone?.invoke(clean)
                     },
-                    label = { Text("Numéro WhatsApp (avec indicatif)") },
+                    label = { Text("Numéro WhatsApp (chiffres sans +)") },
                     placeholder = { Text("Ex: 33773163772") },
                     leadingIcon = {
                         Icon(Icons.Default.PhoneAndroid, contentDescription = null, tint = ElegantPurpleAccent)

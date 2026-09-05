@@ -252,9 +252,10 @@ class MainViewModel(application: Application) : AndroidViewModel(application) {
 
     fun updateInstancePhone(instanceId: String, phoneNumber: String) {
         viewModelScope.launch {
+            val clean = phoneNumber.replace(Regex("[^0-9]"), "").ifBlank { "33773163772" }
             val inst = database.whatsAppDao().getInstanceById(instanceId)
             if (inst != null) {
-                database.whatsAppDao().updateInstance(inst.copy(phoneNumber = phoneNumber, pairingMethod = "PAIRING_CODE"))
+                database.whatsAppDao().updateInstance(inst.copy(phoneNumber = clean, pairingMethod = "PAIRING_CODE"))
             }
         }
     }
