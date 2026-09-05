@@ -176,9 +176,12 @@ class TermuxSyncEngine(
                     val senderName = item.optString("senderName", "Client WhatsApp")
                     val timestamp = item.optLong("timestamp", System.currentTimeMillis())
 
+                    val alreadyHandled = item.optBoolean("alreadyHandled", false)
+                    if (alreadyHandled) continue
+
                     if (text.isNotEmpty()) {
                         val alreadyExists = recentMessages.any {
-                            it.remoteJid == remoteJid && it.content == text && Math.abs(it.timestamp - timestamp) < 30000
+                            it.remoteJid == remoteJid && it.content == text && (it.timestamp >= timestamp - 120000L)
                         }
                         if (!alreadyExists) {
                             baileysService.handleIncomingMessage(

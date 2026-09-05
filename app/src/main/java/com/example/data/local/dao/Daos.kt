@@ -46,6 +46,9 @@ interface AgentDao {
     @Query("SELECT * FROM ai_agents ORDER BY name ASC")
     fun getAllAgents(): Flow<List<AgentEntity>>
 
+    @Query("SELECT * FROM ai_agents ORDER BY name ASC")
+    suspend fun getAllAgentsList(): List<AgentEntity>
+
     @Query("SELECT * FROM ai_agents WHERE isActive = 1")
     suspend fun getActiveAgents(): List<AgentEntity>
 

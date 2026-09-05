@@ -485,20 +485,33 @@ class MainViewModel(application: Application) : AndroidViewModel(application) {
 
     fun bindAgentAndModelToInstance(instanceId: String, agentId: String, modelId: String) {
         viewModelScope.launch {
-            val agent = database.agentDao().getAgentById(agentId) ?: return@launch
-            val updatedInstances = if (agent.assignedInstanceIdsCsv == "*") {
-                "*"
-            } else {
-                val list = agent.assignedInstanceIdsCsv.split(",").map { it.trim() }.filter { it.isNotBlank() }.toMutableSet()
-                list.add(instanceId)
-                list.joinToString(",")
+            // 1. Remove this instanceId from other agents to avoid conflicting routing
+            val allAgents = database.agentDao().getAllAgentsList()
+            for (other in allAgents) {
+                if (other.id != agentId && other.assignedInstanceIdsCsv.contains(instanceId) && other.assignedInstanceIdsCsv != "*") {
+                    val updated = other.assignedInstanceIdsCsv.split(",")
+                        .map { it.trim() }
+                        .filter { it.isNotBlank() && it != instanceId }
+                        .joinToString(",")
+                    database.agentDao().updateAgent(other.copy(assignedInstanceIdsCsv = updated))
+                }
             }
+
+            // 2. Assign target agent exclusively to this instance, activate 24/7
+            val agent = database.agentDao().getAgentById(agentId) ?: return@launch
             val updatedAgent = agent.copy(
                 modelId = modelId,
-                assignedInstanceIdsCsv = updatedInstances,
-                isActive = true
+                assignedInstanceIdsCsv = instanceId,
+                isActive = true,
+                activationMode = "ALWAYS"
             )
             database.agentDao().updateAgent(updatedAgent)
+
+            // 3. Ensure the selected model is calibrated and ready on disk
+            val modelItem = modelManager.catalog.firstOrNull { it.id == modelId }
+            if (modelItem != null && !modelManager.isModelDownloaded(modelId)) {
+                modelManager.calibrateAndInstallModel(modelItem)
+            }
         }
     }
 

@@ -237,7 +237,8 @@ fun LiveChatSimulator(
 
     val currentInstance = instances.firstOrNull { it.id == activeInstanceId }
     val assignedAgent = currentInstance?.let { inst ->
-        agents.firstOrNull { it.assignedInstanceIdsCsv == inst.id || it.assignedInstanceIdsCsv == "*" }
+        agents.firstOrNull { it.assignedInstanceIdsCsv.split(",").map { s -> s.trim() }.contains(inst.id) && it.assignedInstanceIdsCsv != "*" }
+            ?: agents.firstOrNull { it.assignedInstanceIdsCsv == "*" }
     } ?: agents.firstOrNull { it.isActive } ?: agents.firstOrNull()
 
     // Filter messages: "ALL" shows all messages across all instances

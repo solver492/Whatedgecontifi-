@@ -184,6 +184,15 @@ class BaileysService(private val database: AppDatabase) {
         instanceId: String,
         messageText: String
     ): Pair<AgentEntity?, String> {
+        // 0. Top Priority: Agent explicitly assigned to this instance
+        val explicitlyAssigned = agents.filter { it.isActive }.firstOrNull { agent ->
+            val assignedList = agent.assignedInstanceIdsCsv.split(",").map { it.trim() }.filter { it.isNotBlank() }
+            assignedList.contains(instanceId) && agent.assignedInstanceIdsCsv != "*"
+        }
+        if (explicitlyAssigned != null) {
+            return Pair(explicitlyAssigned, "Agent assigné à cette instance (${explicitlyAssigned.name})")
+        }
+
         val eligibleAgents = agents.filter { agent ->
             agent.assignedInstanceIdsCsv == "*" || agent.assignedInstanceIdsCsv.contains(instanceId)
         }

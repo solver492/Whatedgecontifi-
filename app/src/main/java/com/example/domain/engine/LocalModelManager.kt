@@ -165,7 +165,24 @@ class LocalModelManager(private val context: Context) {
     val downloadedModels: StateFlow<List<DownloadedModelRecord>> = _downloadedModels.asStateFlow()
 
     init {
+        ensureDefaultModelsAvailable()
         refreshDownloadedModels()
+    }
+
+    private fun ensureDefaultModelsAvailable() {
+        scope.launch {
+            val defaultIds = listOf("phi-3.5-mini-int4", "gemma-2-2b-int4", "smollm2-135m-instruct", "llama-3.2-1b-int4")
+            for (id in defaultIds) {
+                val item = catalog.firstOrNull { it.id == id } ?: continue
+                val file = File(modelsDir, item.fileName)
+                if (!file.exists() || file.length() == 0L) {
+                    try {
+                        calibrateAndWriteModelPackage(file, item)
+                    } catch (_: Exception) {}
+                }
+            }
+            refreshDownloadedModels()
+        }
     }
 
     fun refreshDownloadedModels() {

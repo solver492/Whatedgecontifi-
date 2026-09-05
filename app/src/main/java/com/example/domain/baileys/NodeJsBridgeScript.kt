@@ -129,17 +129,23 @@ function savePhoneNumber(num) {
   } catch (_) {}
 }
 
+let activeAppUrl = null;
+
 // Helper: Send event or message to Android App
 async function sendToApp(endpoint, payload) {
-  for (const baseUrl of APP_URLS) {
+  const urls = activeAppUrl ? [activeAppUrl, ...APP_URLS.filter(u => u !== activeAppUrl)] : APP_URLS;
+  for (const baseUrl of urls) {
     try {
       const res = await fetch(`${'$'}{baseUrl}${'$'}{endpoint}`, {
         method: 'POST',
         headers: { 'Content-Type': 'application/json' },
         body: JSON.stringify(payload),
-        signal: AbortSignal.timeout(5000)
+        signal: AbortSignal.timeout(15000)
       });
-      if (res.ok) return await res.json();
+      if (res.ok) {
+        activeAppUrl = baseUrl;
+        return await res.json();
+      }
     } catch (_) {}
   }
   return null;
@@ -467,11 +473,25 @@ async function startBaileys() {
   });
 
   // Handle incoming messages
+  const processedMsgIds = new Set();
+
   sock.ev.on('messages.upsert', async (m) => {
     if (m.type !== 'notify') return;
 
     for (const msg of m.messages) {
       if (msg.key.fromMe) continue;
+
+      const msgId = msg.key?.id;
+      if (msgId && processedMsgIds.has(msgId)) {
+        continue;
+      }
+      if (msgId) {
+        processedMsgIds.add(msgId);
+        if (processedMsgIds.size > 500) {
+          const first = processedMsgIds.values().next().value;
+          processedMsgIds.delete(first);
+        }
+      }
 
       const remoteJid = msg.key.remoteJid;
       const senderName = msg.pushName || 'Client WhatsApp';
@@ -490,10 +510,12 @@ async function startBaileys() {
 
       // Store in buffer for pulling
       messageBuffer.push({
+        messageId: msgId || ('msg_' + Date.now()),
         remoteJid,
         senderName,
         text,
-        timestamp: Date.now()
+        timestamp: Date.now(),
+        alreadyHandled: true
       });
       if (messageBuffer.length > 100) messageBuffer.shift();
 
@@ -504,7 +526,8 @@ async function startBaileys() {
         instanceId: INSTANCE_ID,
         remoteJid: remoteJid,
         senderName: senderName,
-        text: text
+        text: text,
+        messageId: msgId || ''
       });
 
       if (response && response.replyText) {
@@ -527,12 +550,12 @@ startBaileys().catch(console.error);
     const val DEFAULT_PHONE_NUMBER = "33773163772"
 
     /**
-     * 1-line Termux fast update command that replaces server.js with the latest version and starts it
+     * 1-line Termux fast update command that updates server.js while KEEPING existing WhatsApp auth session!
      */
-    const val FAST_UPDATE_COMMAND = "killall node 2>/dev/null ; cd ~/wa-bridge && rm -rf auth_info_baileys phone.txt auth_* && (curl -s http://127.0.0.1:8081/server.js > server.js 2>/dev/null || curl -s http://127.0.0.1:8080/server.js > server.js) && node server.js 33773163772"
+    const val FAST_UPDATE_COMMAND = "killall node 2>/dev/null ; cd ~/wa-bridge && (curl -s http://127.0.0.1:8081/server.js > server.js 2>/dev/null || curl -s http://127.0.0.1:8080/server.js > server.js) && node server.js 33773163772"
 
     /**
-     * Termux command to reset auth and request 8-digit pairing code
+     * Termux command to reset auth and request fresh 8-digit pairing code
      */
     const val PAIRING_CODE_COMMAND = "killall node 2>/dev/null ; cd ~/wa-bridge && rm -rf auth_info_baileys phone.txt auth_* && (curl -s http://127.0.0.1:8081/server.js > server.js 2>/dev/null || curl -s http://127.0.0.1:8080/server.js > server.js) && node server.js 33773163772"
 
@@ -548,7 +571,7 @@ startBaileys().catch(console.error);
 
     fun buildFastUpdateCommand(phoneNumber: String = DEFAULT_PHONE_NUMBER): String {
         val clean = phoneNumber.replace(Regex("[^0-9]"), "").ifBlank { DEFAULT_PHONE_NUMBER }
-        return "killall node 2>/dev/null ; cd ~/wa-bridge && rm -rf auth_info_baileys phone.txt auth_* && (curl -s http://127.0.0.1:8081/server.js > server.js 2>/dev/null || curl -s http://127.0.0.1:8080/server.js > server.js) && node server.js $clean"
+        return "killall node 2>/dev/null ; cd ~/wa-bridge && (curl -s http://127.0.0.1:8081/server.js > server.js 2>/dev/null || curl -s http://127.0.0.1:8080/server.js > server.js) && node server.js $clean"
     }
 
     /**

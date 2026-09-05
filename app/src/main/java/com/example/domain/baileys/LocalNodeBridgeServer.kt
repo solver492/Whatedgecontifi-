@@ -47,6 +47,8 @@ class LocalNodeBridgeServer(
     private val _logs = MutableStateFlow<List<BridgeLogEntry>>(emptyList())
     val logs: StateFlow<List<BridgeLogEntry>> = _logs.asStateFlow()
 
+    private val recentIncomingDeduplication = java.util.concurrent.ConcurrentHashMap<String, Long>()
+
     fun log(type: LogType, message: String) {
         val entry = BridgeLogEntry(type = type, message = message)
         _logs.value = (listOf(entry) + _logs.value).take(100)
@@ -114,38 +116,52 @@ class LocalNodeBridgeServer(
 
     private suspend fun handleClientSocket(socket: Socket) = withContext(Dispatchers.IO) {
         try {
-            val reader = BufferedReader(InputStreamReader(socket.getInputStream()))
+            val rawInput = socket.getInputStream()
             val output: OutputStream = socket.getOutputStream()
 
-            val requestLine = reader.readLine() ?: return@withContext
-            val parts = requestLine.split(" ")
+            // Read HTTP headers safely without blocking
+            val headerStream = java.io.ByteArrayOutputStream()
+            var prev3 = 0
+            var prev2 = 0
+            var prev1 = 0
+            var b: Int
+            while (rawInput.read().also { b = it } != -1) {
+                headerStream.write(b)
+                if (prev3 == '\r'.code && prev2 == '\n'.code && prev1 == '\r'.code && b == '\n'.code) {
+                    break
+                }
+                prev3 = prev2
+                prev2 = prev1
+                prev1 = b
+            }
+
+            val headerStr = headerStream.toString("UTF-8")
+            val lines = headerStr.lines()
+            if (lines.isEmpty() || lines[0].isBlank()) return@withContext
+
+            val parts = lines[0].trim().split(" ")
             if (parts.size < 2) return@withContext
 
             val method = parts[0]
             val path = parts[1]
 
-            // Read HTTP headers
-            var line: String?
+            // Read Content-Length
             var contentLength = 0
-            while (reader.readLine().also { line = it } != null && line!!.isNotBlank()) {
-                if (line!!.lowercase(Locale.getDefault()).startsWith("content-length:")) {
-                    contentLength = line!!.substringAfter(":").trim().toIntOrNull() ?: 0
+            for (line in lines) {
+                if (line.lowercase(Locale.getDefault()).startsWith("content-length:")) {
+                    contentLength = line.substringAfter(":").trim().toIntOrNull() ?: 0
                 }
             }
 
-            // Read Body if any
-            val bodyBuilder = StringBuilder()
-            if (contentLength > 0) {
-                val buffer = CharArray(contentLength)
-                var readTotal = 0
-                while (readTotal < contentLength) {
-                    val read = reader.read(buffer, readTotal, contentLength - readTotal)
-                    if (read == -1) break
-                    readTotal += read
-                }
-                bodyBuilder.append(buffer, 0, readTotal)
+            // Read Body bytes accurately using byte buffer to prevent multi-byte char hangs
+            val bodyBytes = ByteArray(contentLength)
+            var readTotal = 0
+            while (readTotal < contentLength) {
+                val read = rawInput.read(bodyBytes, readTotal, contentLength - readTotal)
+                if (read == -1) break
+                readTotal += read
             }
-            val bodyStr = bodyBuilder.toString()
+            val bodyStr = String(bodyBytes, 0, readTotal, Charsets.UTF_8)
 
             // Handle CORS Preflight
             if (method.equals("OPTIONS", ignoreCase = true)) {
@@ -206,6 +222,31 @@ class LocalNodeBridgeServer(
                         val remoteJid = json.optString("remoteJid", "unknown@s.whatsapp.net")
                         val senderName = json.optString("senderName", "Client WhatsApp")
                         val text = json.optString("text", "")
+                        val messageId = json.optString("messageId", "")
+
+                        // Deduplication: prevent processing duplicate incoming messages within 15 seconds
+                        val dedupKey = if (messageId.isNotBlank()) "$remoteJid:$messageId" else "$remoteJid:$text"
+                        val now = System.currentTimeMillis()
+                        val lastSeen = recentIncomingDeduplication[dedupKey] ?: 0L
+
+                        if (now - lastSeen < 15000L) {
+                            log(LogType.INFO, "[$instanceId] Message en double ignoré (déduplication) : '$text'")
+                            val recentReply = database.whatsAppMessageDao().getRecentMessagesDirect(5)
+                                .firstOrNull { !it.isFromCustomer && it.remoteJid == remoteJid }
+                            val responseJson = JSONObject().apply {
+                                put("success", true)
+                                put("replyText", recentReply?.content ?: "")
+                                put("agentName", recentReply?.handledByAgentName ?: "Agent")
+                                put("duplicate", true)
+                            }
+                            sendHttpResponse(output, 200, "OK", "application/json", responseJson.toString())
+                            return@withContext
+                        }
+                        recentIncomingDeduplication[dedupKey] = now
+                        if (recentIncomingDeduplication.size > 200) {
+                            val cutoff = now - 60000L
+                            recentIncomingDeduplication.entries.removeIf { it.value < cutoff }
+                        }
 
                         log(LogType.INCOMING, "[$instanceId] De: $senderName ($remoteJid) -> '$text'")
 

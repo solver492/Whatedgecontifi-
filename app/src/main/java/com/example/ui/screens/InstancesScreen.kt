@@ -389,7 +389,8 @@ fun InstancesScreen(
                         }
                     } else {
                         items(instances, key = { it.id }) { instance ->
-                            val assignedAgent = agents.firstOrNull { it.assignedInstanceIdsCsv == instance.id || it.assignedInstanceIdsCsv == "*" }
+                            val assignedAgent = agents.firstOrNull { it.assignedInstanceIdsCsv.split(",").map { s -> s.trim() }.contains(instance.id) && it.assignedInstanceIdsCsv != "*" }
+                                ?: agents.firstOrNull { it.assignedInstanceIdsCsv == "*" }
                             InstanceCard(
                                 instance = instance,
                                 assignedAgent = assignedAgent,

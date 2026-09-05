@@ -149,7 +149,7 @@ Nos bureaux sont actuellement fermés (horaires d'ouverture : 08h30 - 19h00).
 Rassure le client, note sa demande et propose de réserver un créneau ou de laisser ses coordonnées pour un rappel dès demain matin.""".trimIndent(),
                 modelId = "phi-3.5-mini-int4",
                 isLocal = true,
-                isActive = false,
+                isActive = true,
                 activationMode = "SCHEDULE",
                 keywordsCsv = "*",
                 scheduleStart = "20:00",
