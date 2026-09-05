@@ -168,6 +168,7 @@ class TermuxSyncEngine(
                     ?: "default"
 
                 val msgDao = database.whatsAppMessageDao()
+                val recentMessages = msgDao.getRecentMessagesDirect(100)
                 for (i in 0 until jsonArray.length()) {
                     val item = jsonArray.getJSONObject(i)
                     val text = item.optString("text", "").trim()
@@ -176,15 +177,17 @@ class TermuxSyncEngine(
                     val timestamp = item.optLong("timestamp", System.currentTimeMillis())
 
                     if (text.isNotEmpty()) {
-                        // Check if this message was already received
-                        val exists = withContext(Dispatchers.IO) {
-                            val allMsgs = msgDao.getAllMessages()
-                            // Simple deduplication check via timestamp and content
-                            false // We will process or handleIncomingMessage
+                        val alreadyExists = recentMessages.any {
+                            it.remoteJid == remoteJid && it.content == text && Math.abs(it.timestamp - timestamp) < 30000
                         }
-
-                        // We can call handleIncomingMessage if not yet processed
-                        // For safety, let the server route or record message
+                        if (!alreadyExists) {
+                            baileysService.handleIncomingMessage(
+                                instanceId = targetInstanceId,
+                                senderJid = remoteJid,
+                                senderName = senderName,
+                                messageText = text
+                            )
+                        }
                     }
                 }
             } else {

@@ -115,6 +115,9 @@ interface WhatsAppMessageDao {
     @Query("SELECT * FROM whatsapp_messages ORDER BY timestamp DESC LIMIT 200")
     fun getRecentMessages(): Flow<List<WhatsAppMessageEntity>>
 
+    @Query("SELECT * FROM whatsapp_messages ORDER BY timestamp DESC LIMIT :limit")
+    suspend fun getRecentMessagesDirect(limit: Int = 100): List<WhatsAppMessageEntity>
+
     @Query("SELECT * FROM whatsapp_messages ORDER BY timestamp ASC")
     fun getAllMessages(): Flow<List<WhatsAppMessageEntity>>
 
@@ -126,6 +129,9 @@ interface WhatsAppMessageDao {
 
     @Query("DELETE FROM whatsapp_messages WHERE instanceId = :instanceId")
     suspend fun clearMessagesForInstance(instanceId: String)
+
+    @Query("DELETE FROM whatsapp_messages WHERE instanceId = :instanceId")
+    suspend fun deleteAllMessagesForInstance(instanceId: String)
 
     @Query("DELETE FROM whatsapp_messages WHERE remoteJid = :remoteJid")
     suspend fun deleteMessagesForContact(remoteJid: String)

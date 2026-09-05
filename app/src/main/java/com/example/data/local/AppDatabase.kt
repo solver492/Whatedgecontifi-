@@ -31,7 +31,7 @@ import java.util.UUID
         WhatsAppMessageEntity::class,
         WebhookConfigEntity::class
     ],
-    version = 1,
+    version = 2,
     exportSchema = false
 )
 abstract class AppDatabase : RoomDatabase() {
@@ -52,7 +52,8 @@ abstract class AppDatabase : RoomDatabase() {
                     context.applicationContext,
                     AppDatabase::class.java,
                     "ai_edge_whatsapp_db"
-                ).addCallback(object : Callback() {
+                ).fallbackToDestructiveMigration()
+                .addCallback(object : Callback() {
                     override fun onCreate(db: SupportSQLiteDatabase) {
                         super.onCreate(db)
                         CoroutineScope(Dispatchers.IO).launch {
@@ -73,37 +74,22 @@ abstract class AppDatabase : RoomDatabase() {
             val webhookDao = database.webhookDao()
             val msgDao = database.whatsAppMessageDao()
 
-            // 1. Initial WhatsApp Instances
-            val supportInstance = WhatsAppInstanceEntity(
-                id = "inst-support-01",
-                name = "WhatsApp Support Principal",
-                phoneNumber = "+33 7 45 89 12 30",
-                status = "CONNECTED",
-                pairingMethod = "QR_CODE",
-                pairingCode = "WA92-EQ45",
-                qrToken = "2@p1k9Q...wa_baileys_token",
-                bridgeUrl = "ws://127.0.0.1:8080/baileys",
+            // 1. Real WhatsApp Instance (User Phone: 33773163772)
+            val mainInstance = WhatsAppInstanceEntity(
+                id = "inst-wa-main",
+                name = "WhatsApp Principal",
+                phoneNumber = "33773163772",
+                status = "DISCONNECTED",
+                pairingMethod = "PAIRING_CODE",
+                pairingCode = "",
+                qrToken = "",
+                bridgeUrl = "http://127.0.0.1:8080",
                 localPort = 8080,
                 isDefault = true,
-                unreadCount = 2,
-                messagesCount = 14
-            )
-            val salesInstance = WhatsAppInstanceEntity(
-                id = "inst-sales-02",
-                name = "WhatsApp Commercial & Ventes",
-                phoneNumber = "+33 6 18 90 44 21",
-                status = "QR_READY",
-                pairingMethod = "PAIRING_CODE",
-                pairingCode = "AEQ4-9872",
-                qrToken = "2@xZ78...wa_baileys_session",
-                bridgeUrl = "ws://127.0.0.1:8081/baileys",
-                localPort = 8081,
-                isDefault = false,
                 unreadCount = 0,
-                messagesCount = 8
+                messagesCount = 0
             )
-            waDao.insertInstance(supportInstance)
-            waDao.insertInstance(salesInstance)
+            waDao.insertInstance(mainInstance)
 
             // 2. Initial AI Agents
             val supportAgent = AgentEntity(
@@ -285,39 +271,6 @@ Rassure le client, note sa demande et propose de réserver un créneau ou de lai
                     isEnabled = true,
                     lastPingSuccess = true,
                     lastPingTimestamp = System.currentTimeMillis() - 120000
-                )
-            )
-
-            // 6. Initial Sample Messages for Support Instance
-            val now = System.currentTimeMillis()
-            msgDao.insertMessage(
-                WhatsAppMessageEntity(
-                    id = UUID.randomUUID().toString(),
-                    instanceId = supportInstance.id,
-                    remoteJid = "+33699112233@s.whatsapp.net",
-                    senderName = "Alexandre Martin",
-                    content = "Bonjour, quels sont vos prix pour le pack Pro avec WhatsApp ?",
-                    isFromCustomer = true,
-                    timestamp = now - 60000,
-                    handledByAgentId = salesAgent.id,
-                    handledByAgentName = salesAgent.name,
-                    routingReason = "Keyword match: 'prix', 'pack'",
-                    latencyMs = 195L
-                )
-            )
-            msgDao.insertMessage(
-                WhatsAppMessageEntity(
-                    id = UUID.randomUUID().toString(),
-                    instanceId = supportInstance.id,
-                    remoteJid = "+33699112233@s.whatsapp.net",
-                    senderName = "AI Edge Quantizer Bot",
-                    content = "Bonjour Alexandre ! 👋 Notre Pack Pro est à 79€/mois. Il inclut 5 instances WhatsApp Baileys, les modèles IA locaux quantifiés (Gemma 2B INT4) et la connexion Supabase RAG. Souhaitez-vous une démo personnalisée ?",
-                    isFromCustomer = false,
-                    timestamp = now - 55000,
-                    handledByAgentId = salesAgent.id,
-                    handledByAgentName = salesAgent.name,
-                    routingReason = "Keyword match: 'prix', 'pack'",
-                    latencyMs = 195L
                 )
             )
         }

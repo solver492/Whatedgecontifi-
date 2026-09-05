@@ -95,6 +95,49 @@ class MainViewModel(application: Application) : AndroidViewModel(application) {
         bridgeServer.start(8081)
         // Automatically start bi-directional polling with Termux
         termuxSyncEngine.startPolling()
+
+        // Clean up legacy demo instances and ensure real WhatsApp instance exists
+        viewModelScope.launch(Dispatchers.IO) {
+            val waDao = database.whatsAppDao()
+            val msgDao = database.whatsAppMessageDao()
+            val allInst = waDao.getAllInstancesList()
+
+            // Delete legacy demo instances
+            for (inst in allInst) {
+                if (inst.id == "inst-support-01" || inst.id == "inst-sales-02" ||
+                    inst.phoneNumber.contains("7 45 89") || inst.phoneNumber.contains("6 18 90")) {
+                    waDao.deleteInstance(inst.id)
+                }
+            }
+
+            // Delete legacy demo messages
+            msgDao.deleteAllMessagesForInstance("inst-support-01")
+            msgDao.deleteAllMessagesForInstance("inst-sales-02")
+
+            // Check remaining instances
+            val remaining = waDao.getAllInstancesList()
+            if (remaining.isEmpty()) {
+                val realInstance = WhatsAppInstanceEntity(
+                    id = "inst-wa-main",
+                    name = "WhatsApp Principal",
+                    phoneNumber = "33773163772",
+                    status = "DISCONNECTED",
+                    pairingMethod = "PAIRING_CODE",
+                    pairingCode = "",
+                    qrToken = "",
+                    bridgeUrl = "http://127.0.0.1:8081",
+                    localPort = 8080,
+                    isDefault = true,
+                    unreadCount = 0,
+                    messagesCount = 0
+                )
+                waDao.insertInstance(realInstance)
+                _selectedInstanceId.value = realInstance.id
+            } else {
+                val first = remaining.first()
+                _selectedInstanceId.value = first.id
+            }
+        }
     }
 
     override fun onCleared() {

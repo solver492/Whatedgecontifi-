@@ -6,7 +6,7 @@ object NodeJsBridgeScript {
      * Complete production-grade Node.js script for Termux using @whiskeysockets/baileys
      * Functions both as a Webhook sender to the Android App AND a local HTTP API server.
      */
-    const val SCRIPT_CONTENT = """// =========================================================================
+    val SCRIPT_CONTENT = """// =========================================================================
 // AI Edge WhatsApp - Baileys Node.js Bridge for Termux / Local Server
 // Multi-Device WhatsApp Pairing Code (8 Chiffres) & Synchronisation
 // =========================================================================
@@ -48,13 +48,64 @@ let isPairingRequested = false;
 let configuredPhoneNumber = '';
 const messageBuffer = [];
 
-// Helper: Read saved phone number
+// Helper: Resolve phone number with strict priority
+async function resolvePhoneNumber() {
+  // 1. Command-line argument: node server.js 33773163772
+  if (process.argv[2]) {
+    const cleanArg = process.argv[2].replace(/[^0-9]/g, '');
+    if (cleanArg.length >= 7) {
+      console.log('📌 Numéro WhatsApp fourni en ligne de commande : +' + cleanArg);
+      if (fs.existsSync(PHONE_FILE)) {
+        try {
+          const oldPhone = fs.readFileSync(PHONE_FILE, 'utf8').trim().replace(/[^0-9]/g, '');
+          if (oldPhone && oldPhone !== cleanArg) {
+            console.log('🔄 Changement de numéro détecté (+' + oldPhone + ' -> +' + cleanArg + '). Réinitialisation...');
+            if (fs.existsSync(AUTH_DIR)) fs.rmSync(AUTH_DIR, { recursive: true, force: true });
+          }
+        } catch (_) {}
+      }
+      savePhoneNumber(cleanArg);
+      return cleanArg;
+    }
+  }
+
+  // 2. Environment variable PHONE_NUMBER
+  if (process.env.PHONE_NUMBER) {
+    const cleanEnv = process.env.PHONE_NUMBER.replace(/[^0-9]/g, '');
+    if (cleanEnv.length >= 7) {
+      savePhoneNumber(cleanEnv);
+      return cleanEnv;
+    }
+  }
+
+  // 3. Query Android App configuration dynamically
+  try {
+    const fromApp = await fetchConfigFromApp();
+    if (fromApp) {
+      const cleanApp = fromApp.replace(/[^0-9]/g, '');
+      if (cleanApp.length >= 7) {
+        console.log('📱 Numéro WhatsApp récupéré depuis l\'application Android : +' + cleanApp);
+        savePhoneNumber(cleanApp);
+        return cleanApp;
+      }
+    }
+  } catch (_) {}
+
+  // 4. Saved phone.txt file
+  if (fs.existsSync(PHONE_FILE)) {
+    try {
+      const saved = fs.readFileSync(PHONE_FILE, 'utf8').trim().replace(/[^0-9]/g, '');
+      if (saved.length >= 7) return saved;
+    } catch (_) {}
+  }
+
+  // 5. Default user number
+  return '33773163772';
+}
+
 function getSavedPhoneNumber() {
   if (process.argv[2] && process.argv[2].replace(/[^0-9]/g, '').length >= 7) {
     return process.argv[2].replace(/[^0-9]/g, '');
-  }
-  if (process.env.PHONE_NUMBER && process.env.PHONE_NUMBER.replace(/[^0-9]/g, '').length >= 7) {
-    return process.env.PHONE_NUMBER.replace(/[^0-9]/g, '');
   }
   if (fs.existsSync(PHONE_FILE)) {
     try {
@@ -62,7 +113,7 @@ function getSavedPhoneNumber() {
       if (saved.length >= 7) return saved;
     } catch (_) {}
   }
-  return '';
+  return '33773163772';
 }
 
 // Helper: Save phone number to file
@@ -114,11 +165,11 @@ async function triggerPairingCode(phoneToUse) {
     return;
   }
 
-  const cleanPhone = (phoneToUse || configuredPhoneNumber || '').replace(/[^0-9]/g, '');
+  const cleanPhone = (phoneToUse || configuredPhoneNumber || '33773163772').replace(/[^0-9]/g, '');
   if (!cleanPhone || cleanPhone.length < 7) {
     console.log('\n⚠️ Numéro WhatsApp non configuré pour le code d\'appairage.');
     console.log('👉 Entrez votre numéro ci-dessous ou relancez avec : node server.js <numéro>');
-    console.log('   Exemple : node server.js 33745891230\n');
+    console.log('   Exemple : node server.js 33773163772\n');
     promptUserForPhone();
     return;
   }
@@ -173,7 +224,7 @@ function promptUserForPhone() {
     input: process.stdin,
     output: process.stdout
   });
-  rl.question('👉 Entrez votre numéro WhatsApp avec indicatif (ex: 33745891230) : ', async (answer) => {
+  rl.question('👉 Entrez votre numéro WhatsApp avec indicatif (ex: 33773163772) : ', async (answer) => {
     rl.close();
     const clean = answer.trim().replace(/[^0-9]/g, '');
     if (clean.length >= 7) {
@@ -307,10 +358,7 @@ async function startBaileys() {
   console.log(`======================================================\n`);
 
   // Load configured phone number
-  configuredPhoneNumber = getSavedPhoneNumber();
-  if (!configuredPhoneNumber) {
-    configuredPhoneNumber = (await fetchConfigFromApp()) || '';
-  }
+  configuredPhoneNumber = await resolvePhoneNumber();
   if (configuredPhoneNumber) {
     savePhoneNumber(configuredPhoneNumber);
     console.log(`📞 Numéro WhatsApp configuré : +${'$'}{configuredPhoneNumber}`);
@@ -448,25 +496,36 @@ startHttpServer(LOCAL_HTTP_PORT);
 startBaileys().catch(console.error);
 """
 
+    const val DEFAULT_PHONE_NUMBER = "33773163772"
+
     /**
      * 1-line Termux fast update command that replaces server.js with the latest version and starts it
      */
-    const val FAST_UPDATE_COMMAND = "cd ~/wa-bridge && curl -s http://127.0.0.1:8081/server.js > server.js 2>/dev/null || curl -s http://127.0.0.1:8080/server.js > server.js ; node server.js"
+    const val FAST_UPDATE_COMMAND = "cd ~/wa-bridge && curl -s http://127.0.0.1:8081/server.js > server.js 2>/dev/null || curl -s http://127.0.0.1:8080/server.js > server.js ; node server.js 33773163772"
 
     /**
      * Termux command to reset auth and request 8-digit pairing code
      */
-    const val PAIRING_CODE_COMMAND = "cd ~/wa-bridge && curl -s http://127.0.0.1:8081/server.js > server.js 2>/dev/null || curl -s http://127.0.0.1:8080/server.js > server.js ; rm -rf auth_info_baileys auth_* && node server.js"
+    const val PAIRING_CODE_COMMAND = "cd ~/wa-bridge && rm -rf auth_info_baileys phone.txt auth_* && (curl -s http://127.0.0.1:8081/server.js > server.js 2>/dev/null || curl -s http://127.0.0.1:8080/server.js > server.js) && node server.js 33773163772"
 
-    fun buildPairingCommand(phoneNumber: String = ""): String {
-        val clean = phoneNumber.replace(Regex("[^0-9]"), "")
-        val phoneArg = if (clean.isNotBlank()) " $clean" else ""
-        return "cd ~/wa-bridge && curl -s http://127.0.0.1:8081/server.js > server.js 2>/dev/null || curl -s http://127.0.0.1:8080/server.js > server.js ; rm -rf auth_info_baileys auth_* && node server.js$phoneArg"
+    fun buildPairingCommand(phoneNumber: String = DEFAULT_PHONE_NUMBER): String {
+        val clean = phoneNumber.replace(Regex("[^0-9]"), "").ifBlank { DEFAULT_PHONE_NUMBER }
+        return "cd ~/wa-bridge && rm -rf auth_info_baileys phone.txt auth_* && (curl -s http://127.0.0.1:8081/server.js > server.js 2>/dev/null || curl -s http://127.0.0.1:8080/server.js > server.js) && node server.js $clean"
+    }
+
+    fun buildTermuxOneLiner(phoneNumber: String = DEFAULT_PHONE_NUMBER): String {
+        val clean = phoneNumber.replace(Regex("[^0-9]"), "").ifBlank { DEFAULT_PHONE_NUMBER }
+        return "pkg update -y && pkg install -y nodejs curl && mkdir -p ~/wa-bridge && cd ~/wa-bridge && rm -rf auth_info_baileys phone.txt auth_* && curl -s http://127.0.0.1:8081/server.js > server.js && npm install --no-audit @whiskeysockets/baileys pino qrcode-terminal && node server.js $clean"
+    }
+
+    fun buildFastUpdateCommand(phoneNumber: String = DEFAULT_PHONE_NUMBER): String {
+        val clean = phoneNumber.replace(Regex("[^0-9]"), "").ifBlank { DEFAULT_PHONE_NUMBER }
+        return "cd ~/wa-bridge && (curl -s http://127.0.0.1:8081/server.js > server.js 2>/dev/null || curl -s http://127.0.0.1:8080/server.js > server.js) && node server.js $clean"
     }
 
     /**
      * 1-line Termux complete initialization command
      */
-    const val TERMUX_ONE_LINER = "pkg update -y && pkg install -y nodejs curl && mkdir -p ~/wa-bridge && cd ~/wa-bridge && curl -s http://127.0.0.1:8081/server.js > server.js && npm install --no-audit @whiskeysockets/baileys pino qrcode-terminal && node server.js"
+    const val TERMUX_ONE_LINER = "pkg update -y && pkg install -y nodejs curl && mkdir -p ~/wa-bridge && cd ~/wa-bridge && rm -rf auth_info_baileys phone.txt auth_* && curl -s http://127.0.0.1:8081/server.js > server.js && npm install --no-audit @whiskeysockets/baileys pino qrcode-terminal && node server.js 33773163772"
 }
 

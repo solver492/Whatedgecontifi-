@@ -433,6 +433,7 @@ fun InstancesScreen(
                         TermuxGuideSection(
                             isBridgeRunning = isBridgeRunning,
                             bridgePort = bridgePort,
+                            phoneNumber = instances.firstOrNull()?.phoneNumber ?: "33773163772",
                             onStartBridge = { viewModel.startBridge(8080) },
                             onCopyText = { text, notice ->
                                 clipboardManager.setText(AnnotatedString(text))
@@ -611,10 +612,12 @@ fun InstancesScreen(
 fun TermuxGuideSection(
     isBridgeRunning: Boolean,
     bridgePort: Int,
+    phoneNumber: String = "33773163772",
     onStartBridge: () -> Unit,
     onCopyText: (String, String) -> Unit
 ) {
-    val termuxOneLiner = NodeJsBridgeScript.TERMUX_ONE_LINER
+    val cleanPhone = phoneNumber.replace(Regex("[^0-9]"), "").ifBlank { "33773163772" }
+    val termuxOneLiner = "pkg update -y && pkg install -y nodejs curl && mkdir -p ~/wa-bridge && cd ~/wa-bridge && rm -rf auth_info_baileys phone.txt auth_* && (curl -s http://127.0.0.1:$bridgePort/server.js > server.js 2>/dev/null || curl -s http://127.0.0.1:8080/server.js > server.js) && npm install --no-audit @whiskeysockets/baileys pino qrcode-terminal && node server.js $cleanPhone"
 
     Column(verticalArrangement = Arrangement.spacedBy(14.dp)) {
         // Status Card
@@ -690,7 +693,7 @@ fun TermuxGuideSection(
                             color = ElegantTextPrimary
                         )
                         Text(
-                            text = "Installe Node.js, télécharge bridge.js et lance Baileys",
+                            text = "Pour le numéro +$cleanPhone (code à 8 chiffres)",
                             style = MaterialTheme.typography.bodySmall,
                             color = ElegantPurpleSecondary
                         )
@@ -706,7 +709,7 @@ fun TermuxGuideSection(
                     border = BorderStroke(1.dp, ElegantDarkBorder)
                 ) {
                     Text(
-                        text = "pkg update -y && pkg install -y nodejs git && mkdir -p ~/wa-bridge && cd ~/wa-bridge && curl -s http://127.0.0.1:$bridgePort/bridge.js -o bridge.js && npm install @whiskeysockets/baileys pino qrcode-terminal && node bridge.js",
+                        text = termuxOneLiner,
                         modifier = Modifier.padding(12.dp),
                         style = MaterialTheme.typography.labelSmall,
                         fontFamily = FontFamily.Monospace,
@@ -720,8 +723,7 @@ fun TermuxGuideSection(
 
                 Button(
                     onClick = {
-                        val cmd = "pkg update -y && pkg install -y nodejs git && mkdir -p ~/wa-bridge && cd ~/wa-bridge && curl -s http://127.0.0.1:$bridgePort/bridge.js -o bridge.js && npm install @whiskeysockets/baileys pino qrcode-terminal && node bridge.js"
-                        onCopyText(cmd, "Commande automatique copiée ! Collez-la dans Termux.")
+                        onCopyText(termuxOneLiner, "Commande copiée ! Collez-la dans Termux.")
                     },
                     modifier = Modifier.fillMaxWidth().testTag("copy_termux_oneliner"),
                     shape = RoundedCornerShape(12.dp),
@@ -752,18 +754,18 @@ fun TermuxGuideSection(
                 // Step 1
                 TermuxStepItem(
                     stepNumber = "1",
-                    title = "Installer Node.js et Git sur Termux",
+                    title = "Installer Node.js et curl sur Termux",
                     description = "Ouvrez Termux et mettez à jour les dépôts de paquets.",
-                    command = "pkg update -y && pkg install -y nodejs git",
+                    command = "pkg update -y && pkg install -y nodejs curl",
                     onCopy = { onCopyText(it, "Étape 1 copiée !") }
                 )
 
                 // Step 2
                 TermuxStepItem(
                     stepNumber = "2",
-                    title = "Créer le dossier et télécharger le script du pont",
-                    description = "Crée le répertoire de travail et télécharge wa-bridge.js directement depuis cette application.",
-                    command = "mkdir -p ~/wa-bridge && cd ~/wa-bridge && curl -s http://127.0.0.1:$bridgePort/bridge.js -o bridge.js",
+                    title = "Nettoyer et télécharger le script serveur",
+                    description = "Prépare le dossier ~/wa-bridge et télécharge la dernière version de server.js.",
+                    command = "mkdir -p ~/wa-bridge && cd ~/wa-bridge && rm -rf auth_info_baileys phone.txt auth_* && (curl -s http://127.0.0.1:$bridgePort/server.js > server.js 2>/dev/null || curl -s http://127.0.0.1:8080/server.js > server.js)",
                     onCopy = { onCopyText(it, "Étape 2 copiée !") }
                 )
 
@@ -771,17 +773,17 @@ fun TermuxGuideSection(
                 TermuxStepItem(
                     stepNumber = "3",
                     title = "Installer les dépendances Baileys Multi-Device",
-                    description = "Installe la bibliothèque WhatsApp Baileys ainsi que le formateur de QR Code.",
-                    command = "npm install @whiskeysockets/baileys pino qrcode-terminal",
+                    description = "Installe Baileys et pino.",
+                    command = "npm install --no-audit @whiskeysockets/baileys pino qrcode-terminal",
                     onCopy = { onCopyText(it, "Étape 3 copiée !") }
                 )
 
                 // Step 4
                 TermuxStepItem(
                     stepNumber = "4",
-                    title = "Lancer le pont Baileys WhatsApp",
-                    description = "Démarre la connexion WhatsApp. Le QR Code sera imprimé dans le terminal et transmis à l'appli.",
-                    command = "node bridge.js",
+                    title = "Lancer Baileys pour votre numéro",
+                    description = "Génère le code d'appairage à 8 chiffres pour votre WhatsApp.",
+                    command = "node server.js $cleanPhone",
                     onCopy = { onCopyText(it, "Étape 4 copiée !") }
                 )
             }
@@ -1694,7 +1696,7 @@ fun PairingCodeDialog(
                         onSavePhone?.invoke(it)
                     },
                     label = { Text("Numéro WhatsApp (avec indicatif)") },
-                    placeholder = { Text("Ex: 33745891230 ou 22501020304") },
+                    placeholder = { Text("Ex: 33773163772") },
                     leadingIcon = {
                         Icon(Icons.Default.PhoneAndroid, contentDescription = null, tint = ElegantPurpleAccent)
                     },

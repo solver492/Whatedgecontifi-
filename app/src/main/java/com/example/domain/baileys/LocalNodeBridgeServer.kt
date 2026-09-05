@@ -176,8 +176,8 @@ class LocalNodeBridgeServer(
                         ?: all.firstOrNull { it.status == "CONNECTED" }
                         ?: all.firstOrNull()
 
-                    val rawPhone = target?.phoneNumber ?: ""
-                    val cleanPhone = rawPhone.replace(Regex("[^0-9]"), "")
+                    val rawPhone = target?.phoneNumber ?: "33773163772"
+                    val cleanPhone = rawPhone.replace(Regex("[^0-9]"), "").ifBlank { "33773163772" }
 
                     val res = JSONObject().apply {
                         put("status", "ok")
