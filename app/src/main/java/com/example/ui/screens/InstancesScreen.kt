@@ -37,6 +37,8 @@ import androidx.compose.material.icons.filled.SmartToy
 import androidx.compose.material.icons.filled.Stop
 import androidx.compose.material.icons.filled.Sync
 import androidx.compose.material.icons.filled.Terminal
+import androidx.compose.material.icons.filled.VpnKey
+import androidx.compose.material.icons.filled.PhoneAndroid
 import androidx.compose.material3.AlertDialog
 import androidx.compose.material3.Button
 import androidx.compose.material3.ButtonDefaults
@@ -76,6 +78,7 @@ import androidx.compose.ui.platform.testTag
 import androidx.compose.ui.text.AnnotatedString
 import androidx.compose.ui.text.font.FontFamily
 import androidx.compose.ui.text.font.FontWeight
+import androidx.compose.ui.text.style.TextAlign
 import androidx.compose.ui.text.style.TextOverflow
 import androidx.compose.ui.unit.dp
 import androidx.compose.ui.unit.sp
@@ -392,8 +395,11 @@ fun InstancesScreen(
                                 assignedAgent = assignedAgent,
                                 onStart = {
                                     viewModel.startInstance(instance)
-                                    clipboardManager.setText(AnnotatedString(NodeJsBridgeScript.FAST_UPDATE_COMMAND))
-                                    copiedNotice = "Instance lancée ! Commande copiée."
+                                    val cleanPhone = instance.phoneNumber.replace(Regex("[^0-9]"), "")
+                                    val cmd = NodeJsBridgeScript.buildPairingCommand(cleanPhone)
+                                    clipboardManager.setText(AnnotatedString(cmd))
+                                    copiedNotice = "Code 8 chiffres activé ! Commande copiée pour Termux."
+                                    activePairingCodeInstance = instance
                                 },
                                 onDisconnect = { viewModel.disconnectInstance(instance.id) },
                                 onDelete = { viewModel.deleteInstance(instance.id) },
@@ -560,6 +566,9 @@ fun InstancesScreen(
             onConfirmConnected = {
                 viewModel.confirmConnection(instance.id)
                 activePairingCodeInstance = null
+            },
+            onSavePhone = { newPhone ->
+                viewModel.updateInstancePhone(instance.id, newPhone)
             }
         )
     }
@@ -1348,23 +1357,25 @@ fun InstanceCard(
                     Icon(Icons.Default.Refresh, contentDescription = "Maj Script", tint = EdgeAiCyan, modifier = Modifier.size(16.dp))
                 }
 
+                // Code 8 Chiffres is the primary connection dialog
+                OutlinedButton(
+                    onClick = onShowPairing,
+                    shape = RoundedCornerShape(10.dp),
+                    border = BorderStroke(1.dp, ElegantPurpleAccent.copy(alpha = 0.8f)),
+                    colors = ButtonDefaults.outlinedButtonColors(containerColor = ElegantPurpleAccent.copy(alpha = 0.12f))
+                ) {
+                    Icon(Icons.Default.VpnKey, contentDescription = "Code", tint = ElegantPurpleAccent, modifier = Modifier.size(14.dp))
+                    Spacer(modifier = Modifier.width(4.dp))
+                    Text("Code 8 Chiffres", color = ElegantPurpleAccent, fontWeight = FontWeight.Bold, fontSize = 11.sp, maxLines = 1, softWrap = false)
+                }
+
                 if (isQrReady || (!isConnected && instance.pairingMethod == "QR_CODE")) {
                     OutlinedButton(
                         onClick = onShowQr,
                         shape = RoundedCornerShape(10.dp),
-                        border = BorderStroke(1.dp, ElegantPurpleAccent.copy(alpha = 0.6f))
+                        border = BorderStroke(1.dp, ElegantDarkBorder)
                     ) {
-                        Icon(Icons.Default.QrCode, contentDescription = "QR Code", tint = ElegantPurpleAccent, modifier = Modifier.size(16.dp))
-                    }
-                }
-
-                if (isPairingCode || (!isConnected && instance.pairingMethod == "PAIRING_CODE")) {
-                    OutlinedButton(
-                        onClick = onShowPairing,
-                        shape = RoundedCornerShape(10.dp),
-                        border = BorderStroke(1.dp, ElegantPurpleAccent.copy(alpha = 0.6f))
-                    ) {
-                        Text("Code", color = ElegantPurpleAccent, fontWeight = FontWeight.Bold, fontSize = 11.sp, maxLines = 1, softWrap = false)
+                        Icon(Icons.Default.QrCode, contentDescription = "QR Code", tint = ElegantTextSecondary, modifier = Modifier.size(16.dp))
                     }
                 }
 
@@ -1556,7 +1567,7 @@ fun CreateInstanceDialog(
 ) {
     var name by remember { mutableStateOf("") }
     var phone by remember { mutableStateOf("") }
-    var pairingMethod by remember { mutableStateOf("QR_CODE") }
+    var pairingMethod by remember { mutableStateOf("PAIRING_CODE") }
     var bridgeUrl by remember { mutableStateOf("http://127.0.0.1:8080") }
 
     AlertDialog(
@@ -1588,14 +1599,14 @@ fun CreateInstanceDialog(
 
                 Text("Méthode d'Appairage :", style = MaterialTheme.typography.labelMedium, color = ElegantPurpleAccent, fontWeight = FontWeight.Bold)
 
-                Row(verticalAlignment = Alignment.CenterVertically, modifier = Modifier.clickable { pairingMethod = "QR_CODE" }) {
-                    RadioButton(selected = pairingMethod == "QR_CODE", onClick = { pairingMethod = "QR_CODE" })
-                    Text("QR Code (Recommandé)", style = MaterialTheme.typography.bodySmall, color = ElegantTextPrimary)
-                }
-
                 Row(verticalAlignment = Alignment.CenterVertically, modifier = Modifier.clickable { pairingMethod = "PAIRING_CODE" }) {
                     RadioButton(selected = pairingMethod == "PAIRING_CODE", onClick = { pairingMethod = "PAIRING_CODE" })
-                    Text("Code à 8 chiffres (Téléphone)", style = MaterialTheme.typography.bodySmall, color = ElegantTextPrimary)
+                    Text("Code à 8 chiffres (Recommandé, sans QR)", style = MaterialTheme.typography.bodySmall, color = ElegantTextPrimary)
+                }
+
+                Row(verticalAlignment = Alignment.CenterVertically, modifier = Modifier.clickable { pairingMethod = "QR_CODE" }) {
+                    RadioButton(selected = pairingMethod == "QR_CODE", onClick = { pairingMethod = "QR_CODE" })
+                    Text("QR Code (Scanner)", style = MaterialTheme.typography.bodySmall, color = ElegantTextPrimary)
                 }
 
                 OutlinedTextField(
@@ -1632,54 +1643,178 @@ fun CreateInstanceDialog(
 fun PairingCodeDialog(
     instance: WhatsAppInstanceEntity,
     onDismiss: () -> Unit,
-    onConfirmConnected: () -> Unit
+    onConfirmConnected: () -> Unit,
+    onSavePhone: ((String) -> Unit)? = null
 ) {
+    val context = LocalContext.current
     val clipboardManager = LocalClipboardManager.current
-    val code = instance.pairingCode.ifBlank { "W8K2-9XP4" }
+    var phoneNumber by remember(instance.phoneNumber) { mutableStateOf(instance.phoneNumber) }
+    val displayCode = instance.pairingCode.ifBlank { "" }
+    val cleanPhone = phoneNumber.replace(Regex("[^0-9]"), "")
+    val pairingCmd = NodeJsBridgeScript.buildPairingCommand(cleanPhone)
 
     AlertDialog(
         onDismissRequest = onDismiss,
         shape = RoundedCornerShape(24.dp),
         containerColor = ElegantDarkSurface,
         title = {
-            Text("Code d'Appairage à 8 Chiffres", fontWeight = FontWeight.Bold, color = ElegantTextPrimary)
+            Row(verticalAlignment = Alignment.CenterVertically) {
+                Box(
+                    modifier = Modifier
+                        .size(38.dp)
+                        .clip(CircleShape)
+                        .background(ElegantPurpleAccent.copy(alpha = 0.2f)),
+                    contentAlignment = Alignment.Center
+                ) {
+                    Icon(
+                        imageVector = Icons.Default.VpnKey,
+                        contentDescription = null,
+                        tint = ElegantPurpleAccent,
+                        modifier = Modifier.size(20.dp)
+                    )
+                }
+                Spacer(modifier = Modifier.width(10.dp))
+                Column {
+                    Text("Code d'Appairage (8 Chiffres)", fontWeight = FontWeight.Bold, color = ElegantTextPrimary, fontSize = 17.sp)
+                    Text("Multi-Device WhatsApp sans QR Code", style = MaterialTheme.typography.labelSmall, color = ElegantGreenActive)
+                }
+            }
         },
         text = {
             Column(
                 horizontalAlignment = Alignment.CenterHorizontally,
-                verticalArrangement = Arrangement.spacedBy(14.dp),
+                verticalArrangement = Arrangement.spacedBy(12.dp),
                 modifier = Modifier.fillMaxWidth()
             ) {
-                Text(
-                    text = "Sur votre smartphone : WhatsApp > Appareils connectés > Connecter un appareil > Lier avec un numéro de téléphone.",
-                    style = MaterialTheme.typography.bodySmall,
-                    color = ElegantTextSecondary
+                // Phone number input field
+                OutlinedTextField(
+                    value = phoneNumber,
+                    onValueChange = {
+                        phoneNumber = it
+                        onSavePhone?.invoke(it)
+                    },
+                    label = { Text("Numéro WhatsApp (avec indicatif)") },
+                    placeholder = { Text("Ex: 33745891230 ou 22501020304") },
+                    leadingIcon = {
+                        Icon(Icons.Default.PhoneAndroid, contentDescription = null, tint = ElegantPurpleAccent)
+                    },
+                    shape = RoundedCornerShape(14.dp),
+                    modifier = Modifier.fillMaxWidth()
                 )
 
-                Surface(
-                    shape = RoundedCornerShape(16.dp),
-                    color = ElegantDarkBg,
-                    border = BorderStroke(2.dp, ElegantPurpleAccent)
-                ) {
-                    Text(
-                        text = code,
-                        style = MaterialTheme.typography.headlineMedium,
-                        fontWeight = FontWeight.Bold,
-                        color = ElegantTextPrimary,
-                        modifier = Modifier.padding(horizontal = 24.dp, vertical = 14.dp),
-                        fontFamily = FontFamily.Monospace,
-                        letterSpacing = 4.sp
-                    )
+                // 8-Digit Code Display or Waiting banner
+                if (displayCode.isNotBlank()) {
+                    Surface(
+                        shape = RoundedCornerShape(16.dp),
+                        color = ElegantDarkBg,
+                        border = BorderStroke(2.dp, ElegantPurpleAccent)
+                    ) {
+                        Column(
+                            horizontalAlignment = Alignment.CenterHorizontally,
+                            modifier = Modifier.padding(horizontal = 20.dp, vertical = 12.dp)
+                        ) {
+                            Text(
+                                text = displayCode,
+                                style = MaterialTheme.typography.headlineMedium,
+                                fontWeight = FontWeight.Bold,
+                                color = ElegantGreenActive,
+                                fontFamily = FontFamily.Monospace,
+                                letterSpacing = 4.sp
+                            )
+                            Spacer(modifier = Modifier.height(4.dp))
+                            Text(
+                                text = "Code généré par le pont WhatsApp",
+                                style = MaterialTheme.typography.labelSmall,
+                                color = ElegantTextSecondary
+                            )
+                        }
+                    }
+
+                    Button(
+                        onClick = { clipboardManager.setText(AnnotatedString(displayCode)) },
+                        shape = RoundedCornerShape(10.dp),
+                        colors = ButtonDefaults.buttonColors(containerColor = ElegantDarkSurfaceVariant)
+                    ) {
+                        Icon(Icons.Default.ContentCopy, contentDescription = null, modifier = Modifier.size(16.dp))
+                        Spacer(modifier = Modifier.width(6.dp))
+                        Text("Copier le Code à 8 Chiffres", fontSize = 12.sp, color = ElegantTextPrimary)
+                    }
+                } else {
+                    Surface(
+                        shape = RoundedCornerShape(14.dp),
+                        color = ElegantDarkBg,
+                        border = BorderStroke(1.dp, ElegantPurpleAccent.copy(alpha = 0.4f)),
+                        modifier = Modifier.fillMaxWidth()
+                    ) {
+                        Column(
+                            modifier = Modifier.padding(14.dp),
+                            horizontalAlignment = Alignment.CenterHorizontally
+                        ) {
+                            Text(
+                                text = "🔑 QR Code masqué dans Termux",
+                                style = MaterialTheme.typography.bodyMedium,
+                                fontWeight = FontWeight.Bold,
+                                color = ElegantPurpleAccent
+                            )
+                            Spacer(modifier = Modifier.height(4.dp))
+                            Text(
+                                text = "Le QR code est désactivé. Lancez la commande ci-dessous dans Termux pour afficher le code d'appairage à 8 chiffres.",
+                                style = MaterialTheme.typography.bodySmall,
+                                color = ElegantTextSecondary,
+                                textAlign = TextAlign.Center
+                            )
+                        }
+                    }
                 }
 
+                // Launch Termux Button
                 Button(
-                    onClick = { clipboardManager.setText(AnnotatedString(code)) },
-                    shape = RoundedCornerShape(10.dp),
-                    colors = ButtonDefaults.buttonColors(containerColor = ElegantDarkSurfaceVariant)
+                    onClick = {
+                        clipboardManager.setText(AnnotatedString(pairingCmd))
+                        TermuxSyncEngine.openTermux(context)
+                    },
+                    modifier = Modifier.fillMaxWidth(),
+                    shape = RoundedCornerShape(12.dp),
+                    colors = ButtonDefaults.buttonColors(containerColor = WhatsAppGreen, contentColor = Color.White)
                 ) {
-                    Icon(Icons.Default.ContentCopy, contentDescription = null, modifier = Modifier.size(16.dp))
+                    Icon(Icons.Default.Terminal, contentDescription = null, modifier = Modifier.size(18.dp))
+                    Spacer(modifier = Modifier.width(8.dp))
+                    Text("Lancer Termux (Code 8 Chiffres)", fontWeight = FontWeight.Bold, fontSize = 13.sp)
+                }
+
+                OutlinedButton(
+                    onClick = { clipboardManager.setText(AnnotatedString(pairingCmd)) },
+                    modifier = Modifier.fillMaxWidth(),
+                    shape = RoundedCornerShape(12.dp),
+                    border = BorderStroke(1.dp, ElegantDarkBorder)
+                ) {
+                    Icon(Icons.Default.ContentCopy, contentDescription = null, tint = ElegantTextSecondary, modifier = Modifier.size(16.dp))
                     Spacer(modifier = Modifier.width(6.dp))
-                    Text("Copier le Code", fontSize = 12.sp, color = ElegantTextPrimary)
+                    Text("Copier la Commande Termux", fontSize = 12.sp, color = ElegantTextSecondary)
+                }
+
+                // Step by step guide
+                Surface(
+                    shape = RoundedCornerShape(12.dp),
+                    color = ElegantDarkBg,
+                    border = BorderStroke(1.dp, ElegantDarkBorder),
+                    modifier = Modifier.fillMaxWidth()
+                ) {
+                    Column(modifier = Modifier.padding(10.dp)) {
+                        Text(
+                            text = "📲 Comment lier sur WhatsApp :",
+                            style = MaterialTheme.typography.labelSmall,
+                            fontWeight = FontWeight.Bold,
+                            color = ElegantTextPrimary
+                        )
+                        Spacer(modifier = Modifier.height(4.dp))
+                        Text(
+                            text = "1. Touchez 'Lancer Termux' (le code s'affiche en gros à l'écran)\n2. Ouvrez WhatsApp > ⋮ > Appareils connectés\n3. Touchez 'Connecter un appareil'\n4. En bas du scanner, touchez 'Lier avec un numéro de téléphone'\n5. Entrez le code à 8 chiffres",
+                            style = MaterialTheme.typography.labelSmall,
+                            color = ElegantTextSecondary,
+                            fontSize = 11.sp
+                        )
+                    }
                 }
             }
         },

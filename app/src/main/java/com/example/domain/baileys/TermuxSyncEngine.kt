@@ -109,6 +109,16 @@ class TermuxSyncEngine(
                         syncInstancesConnectedStatus()
                     }
 
+                    val termuxPairingCode = json.optString("pairingCode", "")
+                    if (termuxPairingCode.isNotBlank()) {
+                        val waDao = database.whatsAppDao()
+                        val all = waDao.getAllInstancesList()
+                        val target = all.firstOrNull()
+                        if (target != null && target.pairingCode != termuxPairingCode) {
+                            waDao.updateStatus(target.id, "PAIRING_CODE", "", termuxPairingCode)
+                        }
+                    }
+
                     if (wasOffline) {
                         bridgeServer.log(
                             LogType.SUCCESS,

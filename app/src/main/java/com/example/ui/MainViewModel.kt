@@ -207,6 +207,15 @@ class MainViewModel(application: Application) : AndroidViewModel(application) {
         baileysService.startInstance(instance)
     }
 
+    fun updateInstancePhone(instanceId: String, phoneNumber: String) {
+        viewModelScope.launch {
+            val inst = database.whatsAppDao().getInstanceById(instanceId)
+            if (inst != null) {
+                database.whatsAppDao().updateInstance(inst.copy(phoneNumber = phoneNumber, pairingMethod = "PAIRING_CODE"))
+            }
+        }
+    }
+
     fun confirmConnection(instanceId: String) {
         baileysService.confirmConnection(instanceId)
     }

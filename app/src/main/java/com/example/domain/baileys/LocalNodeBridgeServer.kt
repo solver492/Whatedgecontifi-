@@ -167,12 +167,37 @@ class LocalNodeBridgeServer(
                     sendHttpResponse(output, 200, "OK", "application/json", res.toString())
                 }
 
-                // 2. GET /bridge.js or /server.js (Serve Node.js script directly to Termux)
+                // 2. GET /api/config or /api/instance-config (Config and phone number for Termux Baileys)
+                (path.startsWith("/api/config") || path.startsWith("/api/instance-config")) && method.equals("GET", ignoreCase = true) -> {
+                    val waDao = database.whatsAppDao()
+                    val all = waDao.getAllInstancesList()
+                    val reqId = if (path.contains("instanceId=")) path.substringAfter("instanceId=").substringBefore("&") else ""
+                    val target = all.firstOrNull { it.id == reqId || it.name.equals(reqId, ignoreCase = true) }
+                        ?: all.firstOrNull { it.status == "CONNECTED" }
+                        ?: all.firstOrNull()
+
+                    val rawPhone = target?.phoneNumber ?: ""
+                    val cleanPhone = rawPhone.replace(Regex("[^0-9]"), "")
+
+                    val res = JSONObject().apply {
+                        put("status", "ok")
+                        put("instanceId", target?.id ?: "digitalsolverland")
+                        put("name", target?.name ?: "Instance WhatsApp")
+                        put("phoneNumber", cleanPhone)
+                        put("rawPhoneNumber", rawPhone)
+                        put("pairingMethod", "PAIRING_CODE")
+                        put("usePairingCode", true)
+                        put("pairingCode", target?.pairingCode ?: "")
+                    }
+                    sendHttpResponse(output, 200, "OK", "application/json", res.toString())
+                }
+
+                // 3. GET /bridge.js or /server.js (Serve Node.js script directly to Termux)
                 (path.startsWith("/bridge.js") || path.startsWith("/server.js")) && method.equals("GET", ignoreCase = true) -> {
                     sendHttpResponse(output, 200, "OK", "application/javascript; charset=utf-8", NodeJsBridgeScript.SCRIPT_CONTENT)
                 }
 
-                // 3. POST /api/message (incoming WhatsApp message from Baileys)
+                // 4. POST /api/message (incoming WhatsApp message from Baileys)
                 path.startsWith("/api/message") && method.equals("POST", ignoreCase = true) -> {
                     try {
                         val json = JSONObject(bodyStr)
