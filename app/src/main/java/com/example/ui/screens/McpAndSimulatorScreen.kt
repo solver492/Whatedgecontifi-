@@ -22,8 +22,16 @@ import androidx.compose.foundation.lazy.LazyColumn
 import androidx.compose.foundation.lazy.items
 import androidx.compose.foundation.shape.CircleShape
 import androidx.compose.foundation.shape.RoundedCornerShape
+import androidx.compose.animation.AnimatedVisibility
+import androidx.compose.animation.expandVertically
+import androidx.compose.animation.fadeIn
+import androidx.compose.animation.fadeOut
+import androidx.compose.animation.shrinkVertically
 import androidx.compose.material.icons.Icons
 import androidx.compose.material.icons.automirrored.filled.Send
+import androidx.compose.material.icons.filled.KeyboardArrowDown
+import androidx.compose.material.icons.filled.KeyboardArrowUp
+import androidx.compose.runtime.saveable.rememberSaveable
 import androidx.compose.material.icons.filled.Add
 import androidx.compose.material.icons.filled.Build
 import androidx.compose.material.icons.filled.ChatBubbleOutline
@@ -234,6 +242,8 @@ fun LiveChatSimulator(
     var showClearConfirmation by remember { mutableStateOf(false) }
     var showBindDialog by remember { mutableStateOf(false) }
     var feedbackToast by remember { mutableStateOf<String?>(null) }
+    var isTopExpanded by rememberSaveable { mutableStateOf(true) }
+    var isBottomExpanded by rememberSaveable { mutableStateOf(true) }
 
     val currentInstance = instances.firstOrNull { it.id == activeInstanceId }
     val assignedAgent = currentInstance?.let { inst ->
@@ -280,324 +290,397 @@ fun LiveChatSimulator(
             .fillMaxSize()
             .padding(horizontal = 16.dp)
     ) {
-        Spacer(modifier = Modifier.height(10.dp))
+        Spacer(modifier = Modifier.height(6.dp))
 
-        // Top Row: Instance selector dropdown, Sync button & clear button
+        // Top Header with fold/unfold button
         Row(
-            modifier = Modifier.fillMaxWidth(),
-            verticalAlignment = Alignment.CenterVertically,
-            horizontalArrangement = Arrangement.spacedBy(8.dp)
-        ) {
-            ExposedDropdownMenuBox(
-                expanded = expandedInstanceMenu,
-                onExpandedChange = { expandedInstanceMenu = it },
-                modifier = Modifier.weight(1f)
-            ) {
-                OutlinedTextField(
-                    value = if (activeInstanceId == "ALL" || currentInstance == null) {
-                        "🌐 Toutes les instances (${messages.size} msgs)"
-                    } else {
-                        "${currentInstance.name} (${currentInstance.phoneNumber})"
-                    },
-                    onValueChange = {},
-                    readOnly = true,
-                    label = { Text("Filtrer l'instance WhatsApp") },
-                    shape = RoundedCornerShape(16.dp),
-                    trailingIcon = { ExposedDropdownMenuDefaults.TrailingIcon(expanded = expandedInstanceMenu) },
-                    modifier = Modifier
-                        .fillMaxWidth()
-                        .menuAnchor(MenuAnchorType.PrimaryNotEditable)
-                )
-
-                ExposedDropdownMenu(
-                    expanded = expandedInstanceMenu,
-                    onDismissRequest = { expandedInstanceMenu = false },
-                    modifier = Modifier.background(ElegantDarkSurface)
-                ) {
-                    DropdownMenuItem(
-                        text = {
-                            Text(
-                                "🌐 Toutes les instances (Tous les messages reçus)",
-                                color = ElegantPurpleAccent,
-                                fontWeight = FontWeight.Bold
-                            )
-                        },
-                        onClick = {
-                            activeInstanceId = "ALL"
-                            expandedInstanceMenu = false
-                        }
-                    )
-                    instances.forEach { inst ->
-                        DropdownMenuItem(
-                            text = {
-                                Row(verticalAlignment = Alignment.CenterVertically) {
-                                    Box(
-                                        modifier = Modifier
-                                            .size(8.dp)
-                                            .clip(CircleShape)
-                                            .background(if (inst.status == "CONNECTED") ElegantGreenActive else ElegantRedAlert)
-                                    )
-                                    Spacer(modifier = Modifier.width(8.dp))
-                                    Text("${inst.name} - ${inst.phoneNumber} (${inst.status})", color = ElegantTextPrimary)
-                                }
-                            },
-                            onClick = {
-                                activeInstanceId = inst.id
-                                viewModel.selectInstance(inst.id)
-                                expandedInstanceMenu = false
-                            }
-                        )
-                    }
-                }
-            }
-
-            // Sync with Termux button
-            IconButton(
-                onClick = {
-                    viewModel.syncWithTermux()
-                    feedbackToast = "Synchronisation Termux lancée..."
-                },
-                modifier = Modifier
-                    .size(46.dp)
-                    .clip(RoundedCornerShape(14.dp))
-                    .background(if (isTermuxOnline) ElegantGreenActive.copy(alpha = 0.2f) else ElegantDarkSurfaceVariant)
-                    .border(1.dp, if (isTermuxOnline) ElegantGreenActive.copy(alpha = 0.6f) else ElegantDarkBorder, RoundedCornerShape(14.dp))
-            ) {
-                Icon(
-                    imageVector = Icons.Default.Sync,
-                    contentDescription = "Sync Termux",
-                    tint = if (isTermuxOnline) ElegantGreenActive else ElegantPurpleAccent
-                )
-            }
-
-            // Quick Clear all messages button
-            IconButton(
-                onClick = { showClearConfirmation = true },
-                modifier = Modifier
-                    .size(46.dp)
-                    .clip(RoundedCornerShape(14.dp))
-                    .background(ElegantDarkSurfaceVariant)
-                    .border(1.dp, ElegantDarkBorder, RoundedCornerShape(14.dp))
-            ) {
-                Icon(
-                    imageVector = Icons.Default.DeleteSweep,
-                    contentDescription = "Tout effacer",
-                    tint = ElegantRedAlert
-                )
-            }
-        }
-
-        Spacer(modifier = Modifier.height(8.dp))
-
-        // Live Termux status banner
-        Surface(
-            shape = RoundedCornerShape(12.dp),
-            color = if (isTermuxOnline) ElegantGreenActive.copy(alpha = 0.12f) else ElegantDarkSurface,
-            border = BorderStroke(1.dp, if (isTermuxOnline) ElegantGreenActive.copy(alpha = 0.5f) else ElegantDarkBorder),
-            modifier = Modifier.fillMaxWidth()
-        ) {
-            Row(
-                modifier = Modifier.padding(horizontal = 12.dp, vertical = 7.dp),
-                verticalAlignment = Alignment.CenterVertically,
-                horizontalArrangement = Arrangement.SpaceBetween
-            ) {
-                Row(verticalAlignment = Alignment.CenterVertically, modifier = Modifier.weight(1f)) {
-                    Box(
-                        modifier = Modifier
-                            .size(8.dp)
-                            .clip(CircleShape)
-                            .background(if (isTermuxOnline) ElegantGreenActive else Color.Gray)
-                    )
-                    Spacer(modifier = Modifier.width(8.dp))
-                    Text(
-                        text = if (isTermuxOnline) "Termux Baileys Connecté • ${filteredMessages.size} messages reçus" else "Termux en attente • Port app :$bridgePort",
-                        style = MaterialTheme.typography.labelSmall,
-                        fontWeight = FontWeight.Bold,
-                        color = if (isTermuxOnline) ElegantGreenActive else ElegantTextSecondary,
-                        maxLines = 1,
-                        overflow = TextOverflow.Ellipsis
-                    )
-                }
-                TextButton(
-                    onClick = {
-                        viewModel.syncWithTermux()
-                        feedbackToast = "Actualisation..."
-                    },
-                    modifier = Modifier.height(28.dp)
-                ) {
-                    Text("Actualiser", fontSize = 11.sp, color = if (isTermuxOnline) ElegantGreenActive else EdgeAiCyan, fontWeight = FontWeight.Bold)
-                }
-            }
-        }
-
-        Spacer(modifier = Modifier.height(8.dp))
-
-        // AI Agent & Model Banner with direct "Brancher IA" button
-        Surface(
             modifier = Modifier
                 .fillMaxWidth()
-                .clickable {
-                    if (currentInstance != null) {
-                        showBindDialog = true
-                    } else if (instances.isNotEmpty()) {
-                        activeInstanceId = instances.first().id
-                        showBindDialog = true
-                    }
-                },
-            shape = RoundedCornerShape(14.dp),
-            color = ElegantDarkSurface,
-            border = BorderStroke(1.dp, ElegantDarkBorder)
+                .padding(vertical = 4.dp),
+            verticalAlignment = Alignment.CenterVertically,
+            horizontalArrangement = Arrangement.SpaceBetween
         ) {
             Row(
-                modifier = Modifier.padding(horizontal = 12.dp, vertical = 8.dp),
                 verticalAlignment = Alignment.CenterVertically,
-                horizontalArrangement = Arrangement.SpaceBetween
+                modifier = Modifier
+                    .clip(RoundedCornerShape(8.dp))
+                    .clickable { isTopExpanded = !isTopExpanded }
             ) {
-                Row(verticalAlignment = Alignment.CenterVertically, modifier = Modifier.weight(1f)) {
-                    Icon(
-                        imageVector = Icons.Default.SmartToy,
-                        contentDescription = null,
-                        tint = ElegantPurpleAccent,
-                        modifier = Modifier.size(18.dp)
-                    )
-                    Spacer(modifier = Modifier.width(8.dp))
-                    Column {
-                        Text(
-                            text = "Agent Branché : ${assignedAgent?.name ?: "Conseiller Vente (Général)"}",
-                            style = MaterialTheme.typography.labelSmall,
-                            fontWeight = FontWeight.Bold,
-                            color = ElegantTextPrimary,
-                            maxLines = 1,
-                            overflow = TextOverflow.Ellipsis
-                        )
-                        Text(
-                            text = "Modèle Local : ${assignedAgent?.modelId ?: "gemma-2-2b-it-int4"} • ${filteredMessages.size} msgs capturés",
-                            style = MaterialTheme.typography.labelSmall,
-                            color = EdgeAiCyan,
-                            fontSize = 10.sp,
-                            maxLines = 1,
-                            overflow = TextOverflow.Ellipsis
-                        )
-                    }
-                }
+                Box(
+                    modifier = Modifier
+                        .size(8.dp)
+                        .clip(CircleShape)
+                        .background(if (isTermuxOnline) ElegantGreenActive else ElegantPurpleAccent)
+                )
+                Spacer(modifier = Modifier.width(6.dp))
+                Text(
+                    text = if (isTopExpanded) "CONTRÔLES & INSTANCE" else (if (selectedContactJid != null) "FIL : ${selectedContactJid?.substringBefore("@")}" else "${if (activeInstanceId == "ALL") "Toutes les instances" else (currentInstance?.name ?: "Instance")} • Masqué"),
+                    style = MaterialTheme.typography.labelSmall,
+                    fontWeight = FontWeight.Bold,
+                    color = if (isTopExpanded) ElegantTextSecondary else ElegantPurpleAccent,
+                    fontSize = 11.sp,
+                    maxLines = 1,
+                    overflow = TextOverflow.Ellipsis
+                )
+            }
 
-                Surface(
-                    shape = RoundedCornerShape(8.dp),
-                    color = ElegantPurpleAccent.copy(alpha = 0.15f),
-                    border = BorderStroke(1.dp, ElegantPurpleAccent.copy(alpha = 0.5f))
+            Surface(
+                shape = RoundedCornerShape(10.dp),
+                color = if (isTopExpanded) ElegantDarkSurfaceVariant else ElegantPurpleAccent.copy(alpha = 0.2f),
+                border = BorderStroke(1.dp, if (isTopExpanded) ElegantDarkBorder else ElegantPurpleAccent.copy(alpha = 0.6f)),
+                modifier = Modifier
+                    .clip(RoundedCornerShape(10.dp))
+                    .clickable { isTopExpanded = !isTopExpanded }
+                    .testTag("toggle_top_panel_button")
+            ) {
+                Row(
+                    modifier = Modifier.padding(horizontal = 10.dp, vertical = 5.dp),
+                    verticalAlignment = Alignment.CenterVertically
                 ) {
                     Text(
-                        text = "Lier IA",
-                        modifier = Modifier.padding(horizontal = 8.dp, vertical = 4.dp),
+                        text = if (isTopExpanded) "Replier le haut" else "Déplier le haut",
                         style = MaterialTheme.typography.labelSmall,
                         fontWeight = FontWeight.Bold,
-                        color = ElegantPurpleAccent,
-                        maxLines = 1,
-                        softWrap = false
+                        color = if (isTopExpanded) ElegantTextPrimary else ElegantPurpleAccent,
+                        fontSize = 11.sp
+                    )
+                    Spacer(modifier = Modifier.width(4.dp))
+                    Icon(
+                        imageVector = if (isTopExpanded) Icons.Default.KeyboardArrowUp else Icons.Default.KeyboardArrowDown,
+                        contentDescription = if (isTopExpanded) "Replier le haut" else "Déplier le haut",
+                        tint = if (isTopExpanded) ElegantTextPrimary else ElegantPurpleAccent,
+                        modifier = Modifier.size(16.dp)
                     )
                 }
             }
         }
 
-        Spacer(modifier = Modifier.height(8.dp))
-
-        // View Mode Selector Tabs: Discussion vs Fils de Contacts
-        Row(
-            modifier = Modifier.fillMaxWidth(),
-            horizontalArrangement = Arrangement.spacedBy(8.dp)
+        AnimatedVisibility(
+            visible = isTopExpanded,
+            enter = expandVertically() + fadeIn(),
+            exit = shrinkVertically() + fadeOut()
         ) {
-            Surface(
-                shape = RoundedCornerShape(12.dp),
-                color = if (subViewMode == 0) ElegantPurpleAccent else ElegantDarkSurfaceVariant,
-                border = BorderStroke(1.dp, if (subViewMode == 0) ElegantPurpleAccent else ElegantDarkBorder),
-                modifier = Modifier
-                    .weight(1f)
-                    .clickable { subViewMode = 0 }
-            ) {
+            Column(modifier = Modifier.fillMaxWidth()) {
+                // Top Row: Instance selector dropdown, Sync button & clear button
                 Row(
-                    modifier = Modifier.padding(vertical = 8.dp),
-                    horizontalArrangement = Arrangement.Center,
-                    verticalAlignment = Alignment.CenterVertically
+                    modifier = Modifier.fillMaxWidth(),
+                    verticalAlignment = Alignment.CenterVertically,
+                    horizontalArrangement = Arrangement.spacedBy(8.dp)
                 ) {
-                    Icon(
-                        imageVector = Icons.Default.ChatBubbleOutline,
-                        contentDescription = null,
-                        tint = if (subViewMode == 0) ElegantPurpleOnAccent else ElegantTextSecondary,
-                        modifier = Modifier.size(16.dp)
-                    )
-                    Spacer(modifier = Modifier.width(6.dp))
-                    Text(
-                        text = if (selectedContactJid != null) "Fil sélectionné" else "Discussion Active",
-                        style = MaterialTheme.typography.labelMedium,
-                        fontWeight = FontWeight.Bold,
-                        color = if (subViewMode == 0) ElegantPurpleOnAccent else ElegantTextSecondary,
-                        maxLines = 1,
-                        softWrap = false
-                    )
-                }
-            }
+                    ExposedDropdownMenuBox(
+                        expanded = expandedInstanceMenu,
+                        onExpandedChange = { expandedInstanceMenu = it },
+                        modifier = Modifier.weight(1f)
+                    ) {
+                        OutlinedTextField(
+                            value = if (activeInstanceId == "ALL" || currentInstance == null) {
+                                "🌐 Toutes les instances (${messages.size} msgs)"
+                            } else {
+                                "${currentInstance.name} (${currentInstance.phoneNumber})"
+                            },
+                            onValueChange = {},
+                            readOnly = true,
+                            label = { Text("Filtrer l'instance WhatsApp") },
+                            shape = RoundedCornerShape(16.dp),
+                            trailingIcon = { ExposedDropdownMenuDefaults.TrailingIcon(expanded = expandedInstanceMenu) },
+                            modifier = Modifier
+                                .fillMaxWidth()
+                                .menuAnchor(MenuAnchorType.PrimaryNotEditable)
+                        )
 
-            Surface(
-                shape = RoundedCornerShape(12.dp),
-                color = if (subViewMode == 1) ElegantPurpleAccent else ElegantDarkSurfaceVariant,
-                border = BorderStroke(1.dp, if (subViewMode == 1) ElegantPurpleAccent else ElegantDarkBorder),
-                modifier = Modifier
-                    .weight(1f)
-                    .clickable { subViewMode = 1 }
-            ) {
-                Row(
-                    modifier = Modifier.padding(vertical = 8.dp),
-                    horizontalArrangement = Arrangement.Center,
-                    verticalAlignment = Alignment.CenterVertically
-                ) {
-                    Icon(
-                        imageVector = Icons.Default.QuestionAnswer,
-                        contentDescription = null,
-                        tint = if (subViewMode == 1) ElegantPurpleOnAccent else ElegantTextSecondary,
-                        modifier = Modifier.size(16.dp)
-                    )
-                    Spacer(modifier = Modifier.width(6.dp))
-                    Text(
-                        text = "Fils WhatsApp (${contactThreads.size})",
-                        style = MaterialTheme.typography.labelMedium,
-                        fontWeight = FontWeight.Bold,
-                        color = if (subViewMode == 1) ElegantPurpleOnAccent else ElegantTextSecondary,
-                        maxLines = 1,
-                        softWrap = false
-                    )
+                        ExposedDropdownMenu(
+                            expanded = expandedInstanceMenu,
+                            onDismissRequest = { expandedInstanceMenu = false },
+                            modifier = Modifier.background(ElegantDarkSurface)
+                        ) {
+                            DropdownMenuItem(
+                                text = {
+                                    Text(
+                                        "🌐 Toutes les instances (Tous les messages reçus)",
+                                        color = ElegantPurpleAccent,
+                                        fontWeight = FontWeight.Bold
+                                    )
+                                },
+                                onClick = {
+                                    activeInstanceId = "ALL"
+                                    expandedInstanceMenu = false
+                                }
+                            )
+                            instances.forEach { inst ->
+                                DropdownMenuItem(
+                                    text = {
+                                        Row(verticalAlignment = Alignment.CenterVertically) {
+                                            Box(
+                                                modifier = Modifier
+                                                    .size(8.dp)
+                                                    .clip(CircleShape)
+                                                    .background(if (inst.status == "CONNECTED") ElegantGreenActive else ElegantRedAlert)
+                                            )
+                                            Spacer(modifier = Modifier.width(8.dp))
+                                            Text("${inst.name} - ${inst.phoneNumber} (${inst.status})", color = ElegantTextPrimary)
+                                        }
+                                    },
+                                    onClick = {
+                                        activeInstanceId = inst.id
+                                        viewModel.selectInstance(inst.id)
+                                        expandedInstanceMenu = false
+                                    }
+                                )
+                            }
+                        }
+                    }
+
+                    // Sync with Termux button
+                    IconButton(
+                        onClick = {
+                            viewModel.syncWithTermux()
+                            feedbackToast = "Synchronisation Termux lancée..."
+                        },
+                        modifier = Modifier
+                            .size(46.dp)
+                            .clip(RoundedCornerShape(14.dp))
+                            .background(if (isTermuxOnline) ElegantGreenActive.copy(alpha = 0.2f) else ElegantDarkSurfaceVariant)
+                            .border(1.dp, if (isTermuxOnline) ElegantGreenActive.copy(alpha = 0.6f) else ElegantDarkBorder, RoundedCornerShape(14.dp))
+                    ) {
+                        Icon(
+                            imageVector = Icons.Default.Sync,
+                            contentDescription = "Sync Termux",
+                            tint = if (isTermuxOnline) ElegantGreenActive else ElegantPurpleAccent
+                        )
+                    }
+
+                    // Quick Clear all messages button
+                    IconButton(
+                        onClick = { showClearConfirmation = true },
+                        modifier = Modifier
+                            .size(46.dp)
+                            .clip(RoundedCornerShape(14.dp))
+                            .background(ElegantDarkSurfaceVariant)
+                            .border(1.dp, ElegantDarkBorder, RoundedCornerShape(14.dp))
+                    ) {
+                        Icon(
+                            imageVector = Icons.Default.DeleteSweep,
+                            contentDescription = "Tout effacer",
+                            tint = ElegantRedAlert
+                        )
+                    }
                 }
+
+                Spacer(modifier = Modifier.height(8.dp))
+
+                // Live Termux status banner
+                Surface(
+                    shape = RoundedCornerShape(12.dp),
+                    color = if (isTermuxOnline) ElegantGreenActive.copy(alpha = 0.12f) else ElegantDarkSurface,
+                    border = BorderStroke(1.dp, if (isTermuxOnline) ElegantGreenActive.copy(alpha = 0.5f) else ElegantDarkBorder),
+                    modifier = Modifier.fillMaxWidth()
+                ) {
+                    Row(
+                        modifier = Modifier.padding(horizontal = 12.dp, vertical = 7.dp),
+                        verticalAlignment = Alignment.CenterVertically,
+                        horizontalArrangement = Arrangement.SpaceBetween
+                    ) {
+                        Row(verticalAlignment = Alignment.CenterVertically, modifier = Modifier.weight(1f)) {
+                            Box(
+                                modifier = Modifier
+                                    .size(8.dp)
+                                    .clip(CircleShape)
+                                    .background(if (isTermuxOnline) ElegantGreenActive else Color.Gray)
+                            )
+                            Spacer(modifier = Modifier.width(8.dp))
+                            Text(
+                                text = if (isTermuxOnline) "Termux Baileys Connecté • ${filteredMessages.size} messages reçus" else "Termux en attente • Port app :$bridgePort",
+                                style = MaterialTheme.typography.labelSmall,
+                                fontWeight = FontWeight.Bold,
+                                color = if (isTermuxOnline) ElegantGreenActive else ElegantTextSecondary,
+                                maxLines = 1,
+                                overflow = TextOverflow.Ellipsis
+                            )
+                        }
+                        TextButton(
+                            onClick = {
+                                viewModel.syncWithTermux()
+                                feedbackToast = "Actualisation..."
+                            },
+                            modifier = Modifier.height(28.dp)
+                        ) {
+                            Text("Actualiser", fontSize = 11.sp, color = if (isTermuxOnline) ElegantGreenActive else EdgeAiCyan, fontWeight = FontWeight.Bold)
+                        }
+                    }
+                }
+
+                Spacer(modifier = Modifier.height(8.dp))
+
+                // AI Agent & Model Banner with direct "Brancher IA" button
+                Surface(
+                    modifier = Modifier
+                        .fillMaxWidth()
+                        .clickable {
+                            if (currentInstance != null) {
+                                showBindDialog = true
+                            } else if (instances.isNotEmpty()) {
+                                activeInstanceId = instances.first().id
+                                showBindDialog = true
+                            }
+                        },
+                    shape = RoundedCornerShape(14.dp),
+                    color = ElegantDarkSurface,
+                    border = BorderStroke(1.dp, ElegantDarkBorder)
+                ) {
+                    Row(
+                        modifier = Modifier.padding(horizontal = 12.dp, vertical = 8.dp),
+                        verticalAlignment = Alignment.CenterVertically,
+                        horizontalArrangement = Arrangement.SpaceBetween
+                    ) {
+                        Row(verticalAlignment = Alignment.CenterVertically, modifier = Modifier.weight(1f)) {
+                            Icon(
+                                imageVector = Icons.Default.SmartToy,
+                                contentDescription = null,
+                                tint = ElegantPurpleAccent,
+                                modifier = Modifier.size(18.dp)
+                            )
+                            Spacer(modifier = Modifier.width(8.dp))
+                            Column {
+                                Text(
+                                    text = "Agent Branché : ${assignedAgent?.name ?: "Conseiller Vente (Général)"}",
+                                    style = MaterialTheme.typography.labelSmall,
+                                    fontWeight = FontWeight.Bold,
+                                    color = ElegantTextPrimary,
+                                    maxLines = 1,
+                                    overflow = TextOverflow.Ellipsis
+                                )
+                                Text(
+                                    text = "Modèle Local : ${assignedAgent?.modelId ?: "gemma-2-2b-it-int4"} • ${filteredMessages.size} msgs capturés",
+                                    style = MaterialTheme.typography.labelSmall,
+                                    color = EdgeAiCyan,
+                                    fontSize = 10.sp,
+                                    maxLines = 1,
+                                    overflow = TextOverflow.Ellipsis
+                                )
+                            }
+                        }
+
+                        Surface(
+                            shape = RoundedCornerShape(8.dp),
+                            color = ElegantPurpleAccent.copy(alpha = 0.15f),
+                            border = BorderStroke(1.dp, ElegantPurpleAccent.copy(alpha = 0.5f))
+                        ) {
+                            Text(
+                                text = "Lier IA",
+                                modifier = Modifier.padding(horizontal = 8.dp, vertical = 4.dp),
+                                style = MaterialTheme.typography.labelSmall,
+                                fontWeight = FontWeight.Bold,
+                                color = ElegantPurpleAccent,
+                                maxLines = 1,
+                                softWrap = false
+                            )
+                        }
+                    }
+                }
+
+                Spacer(modifier = Modifier.height(8.dp))
+
+                // View Mode Selector Tabs: Discussion vs Fils de Contacts
+                Row(
+                    modifier = Modifier.fillMaxWidth(),
+                    horizontalArrangement = Arrangement.spacedBy(8.dp)
+                ) {
+                    Surface(
+                        shape = RoundedCornerShape(12.dp),
+                        color = if (subViewMode == 0) ElegantPurpleAccent else ElegantDarkSurfaceVariant,
+                        border = BorderStroke(1.dp, if (subViewMode == 0) ElegantPurpleAccent else ElegantDarkBorder),
+                        modifier = Modifier
+                            .weight(1f)
+                            .clickable { subViewMode = 0 }
+                    ) {
+                        Row(
+                            modifier = Modifier.padding(vertical = 8.dp),
+                            horizontalArrangement = Arrangement.Center,
+                            verticalAlignment = Alignment.CenterVertically
+                        ) {
+                            Icon(
+                                imageVector = Icons.Default.ChatBubbleOutline,
+                                contentDescription = null,
+                                tint = if (subViewMode == 0) ElegantPurpleOnAccent else ElegantTextSecondary,
+                                modifier = Modifier.size(16.dp)
+                            )
+                            Spacer(modifier = Modifier.width(6.dp))
+                            Text(
+                                text = if (selectedContactJid != null) "Fil sélectionné" else "Discussion Active",
+                                style = MaterialTheme.typography.labelMedium,
+                                fontWeight = FontWeight.Bold,
+                                color = if (subViewMode == 0) ElegantPurpleOnAccent else ElegantTextSecondary,
+                                maxLines = 1,
+                                softWrap = false
+                            )
+                        }
+                    }
+
+                    Surface(
+                        shape = RoundedCornerShape(12.dp),
+                        color = if (subViewMode == 1) ElegantPurpleAccent else ElegantDarkSurfaceVariant,
+                        border = BorderStroke(1.dp, if (subViewMode == 1) ElegantPurpleAccent else ElegantDarkBorder),
+                        modifier = Modifier
+                            .weight(1f)
+                            .clickable { subViewMode = 1 }
+                    ) {
+                        Row(
+                            modifier = Modifier.padding(vertical = 8.dp),
+                            horizontalArrangement = Arrangement.Center,
+                            verticalAlignment = Alignment.CenterVertically
+                        ) {
+                            Icon(
+                                imageVector = Icons.Default.QuestionAnswer,
+                                contentDescription = null,
+                                tint = if (subViewMode == 1) ElegantPurpleOnAccent else ElegantTextSecondary,
+                                modifier = Modifier.size(16.dp)
+                            )
+                            Spacer(modifier = Modifier.width(6.dp))
+                            Text(
+                                text = "Fils WhatsApp (${contactThreads.size})",
+                                style = MaterialTheme.typography.labelMedium,
+                                fontWeight = FontWeight.Bold,
+                                color = if (subViewMode == 1) ElegantPurpleOnAccent else ElegantTextSecondary,
+                                maxLines = 1,
+                                softWrap = false
+                            )
+                        }
+                    }
+                }
+
+                if (selectedContactJid != null) {
+                    Spacer(modifier = Modifier.height(6.dp))
+                    Row(
+                        modifier = Modifier
+                            .fillMaxWidth()
+                            .background(ElegantDarkCardDark, RoundedCornerShape(10.dp))
+                            .padding(horizontal = 10.dp, vertical = 6.dp),
+                        verticalAlignment = Alignment.CenterVertically,
+                        horizontalArrangement = Arrangement.SpaceBetween
+                    ) {
+                        Text(
+                            text = "Filtre contact : $selectedContactJid",
+                            style = MaterialTheme.typography.labelSmall,
+                            color = Color(0xFF80D8FF),
+                            fontWeight = FontWeight.Bold,
+                            maxLines = 1,
+                            overflow = TextOverflow.Ellipsis,
+                            modifier = Modifier.weight(1f)
+                        )
+                        TextButton(
+                            onClick = { selectedContactJid = null },
+                            modifier = Modifier.height(30.dp)
+                        ) {
+                            Text("Voir tout", fontSize = 11.sp, color = ElegantPurpleAccent)
+                        }
+                    }
+                }
+
+                Spacer(modifier = Modifier.height(4.dp))
             }
         }
 
-        if (selectedContactJid != null) {
-            Spacer(modifier = Modifier.height(6.dp))
-            Row(
-                modifier = Modifier
-                    .fillMaxWidth()
-                    .background(ElegantDarkCardDark, RoundedCornerShape(10.dp))
-                    .padding(horizontal = 10.dp, vertical = 6.dp),
-                verticalAlignment = Alignment.CenterVertically,
-                horizontalArrangement = Arrangement.SpaceBetween
-            ) {
-                Text(
-                    text = "Filtre contact : $selectedContactJid",
-                    style = MaterialTheme.typography.labelSmall,
-                    color = Color(0xFF80D8FF),
-                    fontWeight = FontWeight.Bold,
-                    maxLines = 1,
-                    overflow = TextOverflow.Ellipsis,
-                    modifier = Modifier.weight(1f)
-                )
-                TextButton(
-                    onClick = { selectedContactJid = null },
-                    modifier = Modifier.height(30.dp)
-                ) {
-                    Text("Voir tout", fontSize = 11.sp, color = ElegantPurpleAccent)
-                }
-            }
-        }
-
-        Spacer(modifier = Modifier.height(8.dp))
+        Spacer(modifier = Modifier.height(4.dp))
 
         // Content: SubView 0 = Chat Messages, SubView 1 = Contact Threads List
         if (subViewMode == 1) {
@@ -884,152 +967,221 @@ fun LiveChatSimulator(
                 }
             }
 
-            // Quick Prompts Suggestions
-            FlowRow(
-                horizontalArrangement = Arrangement.spacedBy(6.dp),
-                verticalArrangement = Arrangement.spacedBy(4.dp),
-                modifier = Modifier.padding(vertical = 4.dp)
+            // Bottom Header with fold/unfold button
+            Row(
+                modifier = Modifier
+                    .fillMaxWidth()
+                    .padding(top = 4.dp, bottom = 4.dp),
+                verticalAlignment = Alignment.CenterVertically,
+                horizontalArrangement = Arrangement.SpaceBetween
             ) {
-                val suggestions = listOf(
-                    "Prix du pack ?",
-                    "Horaires d'ouverture ?",
-                    "Prendre RDV",
-                    "Suivi commande #9201",
-                    "Parler à un humain"
-                )
-                suggestions.forEach { prompt ->
-                    Surface(
-                        shape = RoundedCornerShape(12.dp),
-                        color = ElegantDarkSurfaceVariant,
-                        border = BorderStroke(1.dp, ElegantDarkBorder),
-                        modifier = Modifier.clickable {
-                            inputMessageText = prompt
-                        }
+                Row(
+                    verticalAlignment = Alignment.CenterVertically,
+                    modifier = Modifier
+                        .clip(RoundedCornerShape(8.dp))
+                        .clickable { isBottomExpanded = !isBottomExpanded }
+                ) {
+                    Icon(
+                        imageVector = Icons.Default.ChatBubbleOutline,
+                        contentDescription = null,
+                        tint = if (isBottomExpanded) ElegantTextSecondary else ElegantPurpleAccent,
+                        modifier = Modifier.size(14.dp)
+                    )
+                    Spacer(modifier = Modifier.width(6.dp))
+                    Text(
+                        text = if (isBottomExpanded) "SAISIE & SUGGESTIONS" else "Saisie & Suggestions repliées • Plein écran",
+                        style = MaterialTheme.typography.labelSmall,
+                        fontWeight = FontWeight.Bold,
+                        color = if (isBottomExpanded) ElegantTextSecondary else ElegantPurpleAccent,
+                        fontSize = 11.sp
+                    )
+                }
+
+                Surface(
+                    shape = RoundedCornerShape(10.dp),
+                    color = if (isBottomExpanded) ElegantDarkSurfaceVariant else ElegantPurpleAccent.copy(alpha = 0.2f),
+                    border = BorderStroke(1.dp, if (isBottomExpanded) ElegantDarkBorder else ElegantPurpleAccent.copy(alpha = 0.6f)),
+                    modifier = Modifier
+                        .clip(RoundedCornerShape(10.dp))
+                        .clickable { isBottomExpanded = !isBottomExpanded }
+                        .testTag("toggle_bottom_panel_button")
+                ) {
+                    Row(
+                        modifier = Modifier.padding(horizontal = 10.dp, vertical = 5.dp),
+                        verticalAlignment = Alignment.CenterVertically
                     ) {
                         Text(
-                            text = prompt,
+                            text = if (isBottomExpanded) "Replier le bas" else "Déplier le bas",
                             style = MaterialTheme.typography.labelSmall,
-                            color = ElegantTextPrimary,
-                            maxLines = 1,
-                            softWrap = false,
-                            modifier = Modifier.padding(horizontal = 8.dp, vertical = 4.dp)
+                            fontWeight = FontWeight.Bold,
+                            color = if (isBottomExpanded) ElegantTextPrimary else ElegantPurpleAccent,
+                            fontSize = 11.sp
+                        )
+                        Spacer(modifier = Modifier.width(4.dp))
+                        Icon(
+                            imageVector = if (isBottomExpanded) Icons.Default.KeyboardArrowDown else Icons.Default.KeyboardArrowUp,
+                            contentDescription = if (isBottomExpanded) "Replier le bas" else "Déplier le bas",
+                            tint = if (isBottomExpanded) ElegantTextPrimary else ElegantPurpleAccent,
+                            modifier = Modifier.size(16.dp)
                         )
                     }
                 }
             }
 
-            // Input bar with Dual Send Mode
-            Card(
-                modifier = Modifier
-                    .fillMaxWidth()
-                    .padding(bottom = 8.dp),
-                colors = CardDefaults.cardColors(containerColor = ElegantDarkSurface),
-                shape = RoundedCornerShape(20.dp),
-                border = BorderStroke(1.dp, ElegantDarkBorder)
+            AnimatedVisibility(
+                visible = isBottomExpanded,
+                enter = expandVertically() + fadeIn(),
+                exit = shrinkVertically() + fadeOut()
             ) {
-                Column(modifier = Modifier.padding(8.dp)) {
-                    Row(
-                        modifier = Modifier.fillMaxWidth(),
-                        verticalAlignment = Alignment.CenterVertically,
-                        horizontalArrangement = Arrangement.SpaceBetween
+                Column(modifier = Modifier.fillMaxWidth()) {
+                    // Quick Prompts Suggestions
+                    FlowRow(
+                        horizontalArrangement = Arrangement.spacedBy(6.dp),
+                        verticalArrangement = Arrangement.spacedBy(4.dp),
+                        modifier = Modifier.padding(vertical = 4.dp)
                     ) {
-                        Row(verticalAlignment = Alignment.CenterVertically) {
+                        val suggestions = listOf(
+                            "Prix du pack ?",
+                            "Horaires d'ouverture ?",
+                            "Prendre RDV",
+                            "Suivi commande #9201",
+                            "Parler à un humain"
+                        )
+                        suggestions.forEach { prompt ->
                             Surface(
-                                shape = RoundedCornerShape(8.dp),
-                                color = if (sendAsCustomer) Color(0xFF00B0FF).copy(alpha = 0.2f) else ElegantDarkBg,
-                                border = BorderStroke(1.dp, if (sendAsCustomer) Color(0xFF00B0FF) else ElegantDarkBorder),
-                                modifier = Modifier.clickable { sendAsCustomer = true }
+                                shape = RoundedCornerShape(12.dp),
+                                color = ElegantDarkSurfaceVariant,
+                                border = BorderStroke(1.dp, ElegantDarkBorder),
+                                modifier = Modifier.clickable {
+                                    inputMessageText = prompt
+                                }
                             ) {
                                 Text(
-                                    text = "Simuler Client (Déclenche IA)",
-                                    modifier = Modifier.padding(horizontal = 8.dp, vertical = 3.dp),
+                                    text = prompt,
                                     style = MaterialTheme.typography.labelSmall,
-                                    fontWeight = if (sendAsCustomer) FontWeight.Bold else FontWeight.Normal,
-                                    color = if (sendAsCustomer) Color(0xFF00B0FF) else ElegantTextSecondary,
-                                    fontSize = 10.sp,
+                                    color = ElegantTextPrimary,
                                     maxLines = 1,
-                                    softWrap = false
-                                )
-                            }
-                            Spacer(modifier = Modifier.width(6.dp))
-                            Surface(
-                                shape = RoundedCornerShape(8.dp),
-                                color = if (!sendAsCustomer) WhatsAppGreen.copy(alpha = 0.2f) else ElegantDarkBg,
-                                border = BorderStroke(1.dp, if (!sendAsCustomer) WhatsAppGreen else ElegantDarkBorder),
-                                modifier = Modifier.clickable { sendAsCustomer = false }
-                            ) {
-                                Text(
-                                    text = "Moi / Réponse Manuelle",
-                                    modifier = Modifier.padding(horizontal = 8.dp, vertical = 3.dp),
-                                    style = MaterialTheme.typography.labelSmall,
-                                    fontWeight = if (!sendAsCustomer) FontWeight.Bold else FontWeight.Normal,
-                                    color = if (!sendAsCustomer) WhatsAppGreen else ElegantTextSecondary,
-                                    fontSize = 10.sp,
-                                    maxLines = 1,
-                                    softWrap = false
+                                    softWrap = false,
+                                    modifier = Modifier.padding(horizontal = 8.dp, vertical = 4.dp)
                                 )
                             }
                         }
                     }
 
-                    Spacer(modifier = Modifier.height(6.dp))
-
-                    Row(
-                        modifier = Modifier.fillMaxWidth(),
-                        verticalAlignment = Alignment.CenterVertically
+                    // Input bar with Dual Send Mode
+                    Card(
+                        modifier = Modifier
+                            .fillMaxWidth()
+                            .padding(bottom = 8.dp),
+                        colors = CardDefaults.cardColors(containerColor = ElegantDarkSurface),
+                        shape = RoundedCornerShape(20.dp),
+                        border = BorderStroke(1.dp, ElegantDarkBorder)
                     ) {
-                        OutlinedTextField(
-                            value = inputMessageText,
-                            onValueChange = { inputMessageText = it },
-                            placeholder = {
-                                Text(
-                                    text = if (sendAsCustomer) "Écrire un message client..." else "Écrire une réponse manuelle...",
-                                    color = ElegantTextSecondary,
-                                    fontSize = 13.sp
-                                )
-                            },
-                            modifier = Modifier
-                                .weight(1f)
-                                .testTag("simulator_chat_input"),
-                            shape = RoundedCornerShape(16.dp),
-                            maxLines = 3
-                        )
-                        Spacer(modifier = Modifier.width(8.dp))
-                        IconButton(
-                            onClick = {
-                                if (inputMessageText.isNotBlank()) {
-                                    val textToSend = inputMessageText
-                                    inputMessageText = ""
-                                    val targetInstId = currentInstance?.id ?: instances.firstOrNull()?.id ?: "inst_paris_01"
-                                    val contactJid = selectedContactJid ?: "$customerPhone@s.whatsapp.net"
-
-                                    if (sendAsCustomer) {
-                                        viewModel.simulateCustomerMessage(
-                                            instanceId = targetInstId,
-                                            senderJid = contactJid,
-                                            senderName = customerName,
-                                            text = textToSend
+                        Column(modifier = Modifier.padding(8.dp)) {
+                            Row(
+                                modifier = Modifier.fillMaxWidth(),
+                                verticalAlignment = Alignment.CenterVertically,
+                                horizontalArrangement = Arrangement.SpaceBetween
+                            ) {
+                                Row(verticalAlignment = Alignment.CenterVertically) {
+                                    Surface(
+                                        shape = RoundedCornerShape(8.dp),
+                                        color = if (sendAsCustomer) Color(0xFF00B0FF).copy(alpha = 0.2f) else ElegantDarkBg,
+                                        border = BorderStroke(1.dp, if (sendAsCustomer) Color(0xFF00B0FF) else ElegantDarkBorder),
+                                        modifier = Modifier.clickable { sendAsCustomer = true }
+                                    ) {
+                                        Text(
+                                            text = "Simuler Client (Déclenche IA)",
+                                            modifier = Modifier.padding(horizontal = 8.dp, vertical = 3.dp),
+                                            style = MaterialTheme.typography.labelSmall,
+                                            fontWeight = if (sendAsCustomer) FontWeight.Bold else FontWeight.Normal,
+                                            color = if (sendAsCustomer) Color(0xFF00B0FF) else ElegantTextSecondary,
+                                            fontSize = 10.sp,
+                                            maxLines = 1,
+                                            softWrap = false
                                         )
-                                    } else {
-                                        viewModel.sendManualReply(
-                                            instanceId = targetInstId,
-                                            remoteJid = contactJid,
-                                            text = textToSend
+                                    }
+                                    Spacer(modifier = Modifier.width(6.dp))
+                                    Surface(
+                                        shape = RoundedCornerShape(8.dp),
+                                        color = if (!sendAsCustomer) WhatsAppGreen.copy(alpha = 0.2f) else ElegantDarkBg,
+                                        border = BorderStroke(1.dp, if (!sendAsCustomer) WhatsAppGreen else ElegantDarkBorder),
+                                        modifier = Modifier.clickable { sendAsCustomer = false }
+                                    ) {
+                                        Text(
+                                            text = "Moi / Réponse Manuelle",
+                                            modifier = Modifier.padding(horizontal = 8.dp, vertical = 3.dp),
+                                            style = MaterialTheme.typography.labelSmall,
+                                            fontWeight = if (!sendAsCustomer) FontWeight.Bold else FontWeight.Normal,
+                                            color = if (!sendAsCustomer) WhatsAppGreen else ElegantTextSecondary,
+                                            fontSize = 10.sp,
+                                            maxLines = 1,
+                                            softWrap = false
                                         )
                                     }
                                 }
-                            },
-                            modifier = Modifier
-                                .size(44.dp)
-                                .clip(CircleShape)
-                                .background(if (sendAsCustomer) ElegantPurpleAccent else WhatsAppGreen)
-                                .testTag("simulator_send_button")
-                        ) {
-                            Icon(
-                                imageVector = Icons.AutoMirrored.Filled.Send,
-                                contentDescription = "Envoyer",
-                                tint = ElegantPurpleOnAccent
-                            )
+                            }
+
+                            Spacer(modifier = Modifier.height(6.dp))
+
+                            Row(
+                                modifier = Modifier.fillMaxWidth(),
+                                verticalAlignment = Alignment.CenterVertically
+                            ) {
+                                OutlinedTextField(
+                                    value = inputMessageText,
+                                    onValueChange = { inputMessageText = it },
+                                    placeholder = {
+                                        Text(
+                                            text = if (sendAsCustomer) "Écrire un message client..." else "Écrire une réponse manuelle...",
+                                            color = ElegantTextSecondary,
+                                            fontSize = 13.sp
+                                        )
+                                    },
+                                    modifier = Modifier
+                                        .weight(1f)
+                                        .testTag("simulator_chat_input"),
+                                    shape = RoundedCornerShape(16.dp),
+                                    maxLines = 3
+                                )
+                                Spacer(modifier = Modifier.width(8.dp))
+                                IconButton(
+                                    onClick = {
+                                        if (inputMessageText.isNotBlank()) {
+                                            val textToSend = inputMessageText
+                                            inputMessageText = ""
+                                            val targetInstId = currentInstance?.id ?: instances.firstOrNull()?.id ?: "inst_paris_01"
+                                            val contactJid = selectedContactJid ?: "$customerPhone@s.whatsapp.net"
+
+                                            if (sendAsCustomer) {
+                                                viewModel.simulateCustomerMessage(
+                                                    instanceId = targetInstId,
+                                                    senderJid = contactJid,
+                                                    senderName = customerName,
+                                                    text = textToSend
+                                                )
+                                            } else {
+                                                viewModel.sendManualReply(
+                                                    instanceId = targetInstId,
+                                                    remoteJid = contactJid,
+                                                    text = textToSend
+                                                )
+                                            }
+                                        }
+                                    },
+                                    modifier = Modifier
+                                        .size(44.dp)
+                                        .clip(CircleShape)
+                                        .background(if (sendAsCustomer) ElegantPurpleAccent else WhatsAppGreen)
+                                        .testTag("simulator_send_button")
+                                ) {
+                                    Icon(
+                                        imageVector = Icons.AutoMirrored.Filled.Send,
+                                        contentDescription = "Envoyer",
+                                        tint = ElegantPurpleOnAccent
+                                    )
+                                }
+                            }
                         }
                     }
                 }
