@@ -46,6 +46,7 @@ import androidx.compose.material.icons.filled.Terminal
 import androidx.compose.material.icons.filled.Visibility
 import androidx.compose.material.icons.filled.VisibilityOff
 import androidx.compose.material.icons.filled.VpnKey
+import androidx.compose.material.icons.filled.Warning
 import androidx.compose.material3.AlertDialog
 import androidx.compose.material3.Button
 import androidx.compose.material3.ButtonDefaults
@@ -1627,15 +1628,41 @@ fun CreateProductFromTelegramDialog(
                         border = BorderStroke(1.dp, Color(0xFFF59E0B).copy(alpha = 0.5f)),
                         modifier = Modifier.fillMaxWidth()
                     ) {
+                        Column(modifier = Modifier.padding(10.dp)) {
+                            Row(verticalAlignment = Alignment.CenterVertically) {
+                                Icon(Icons.Default.ShoppingBag, contentDescription = null, tint = Color(0xFFF59E0B), modifier = Modifier.size(16.dp))
+                                Spacer(modifier = Modifier.width(6.dp))
+                                Text(
+                                    rawExtracted.lotLabel ?: "Prix au colis / lot détecté",
+                                    color = Color(0xFFF59E0B),
+                                    fontSize = 12.sp,
+                                    fontWeight = FontWeight.Bold
+                                )
+                            }
+                            Spacer(modifier = Modifier.height(4.dp))
+                            Text(
+                                "Prix unitaire estimé : ~${extracted.first.purchasePrice ?: "?"} $currency (Total lot : ${rawExtracted.lotTotalPrice ?: "?"} $currency pour ${rawExtracted.lotQuantity ?: "?"} pièces)",
+                                color = ElegantTextSecondary,
+                                fontSize = 11.sp
+                            )
+                        }
+                    }
+                } else if (rawExtracted.needsPriceReview || extracted.first.purchasePrice == null) {
+                    Surface(
+                        shape = RoundedCornerShape(8.dp),
+                        color = Color(0xFFEF5350).copy(alpha = 0.15f),
+                        border = BorderStroke(1.dp, Color(0xFFEF5350).copy(alpha = 0.5f)),
+                        modifier = Modifier.fillMaxWidth()
+                    ) {
                         Row(
                             modifier = Modifier.padding(8.dp),
                             verticalAlignment = Alignment.CenterVertically
                         ) {
-                            Icon(Icons.Default.ShoppingBag, contentDescription = null, tint = Color(0xFFF59E0B), modifier = Modifier.size(16.dp))
+                            Icon(Icons.Default.Warning, contentDescription = null, tint = Color(0xFFEF5350), modifier = Modifier.size(16.dp))
                             Spacer(modifier = Modifier.width(6.dp))
                             Text(
-                                "${rawExtracted.lotLabel ?: "Prix au lot détecté"} : Prix unitaire estimé calculé automatiquement",
-                                color = Color(0xFFF59E0B),
+                                "Prix à vérifier : Veuillez renseigner le prix d'achat manuellement.",
+                                color = Color(0xFFEF5350),
                                 fontSize = 11.sp,
                                 fontWeight = FontWeight.Medium
                             )

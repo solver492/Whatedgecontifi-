@@ -171,6 +171,18 @@ class BaileysService(private val database: AppDatabase) {
             return fallbackMsg
         }
 
+        // 2.5. Check if the selected agent is specifically disabled for this conversation
+        if (conversationOverride != null && !conversationOverride.isAgentActive(selectedAgent.id)) {
+            _eventsFlow.emit(
+                BaileysEvent(
+                    instanceId,
+                    "messages.skip",
+                    "Agent ${selectedAgent.name} désactivé pour la conversation $senderJid (Reprise manuelle)"
+                )
+            )
+            return incomingMsg
+        }
+
         // 3. Retrieve relevant RAG knowledge sources for this agent
         val knowledgeSources = knowDao.getSourcesForAgent(selectedAgent.id)
 

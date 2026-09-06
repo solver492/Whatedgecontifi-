@@ -16,8 +16,10 @@ data class ExtractedProductData(
     val contactOrOrderLink: String?,
     val isLotOrPackPrice: Boolean = false,
     val lotQuantity: Int? = null,
+    val lotTotalPrice: Double? = null,
     val lotUnitPriceEstimate: Double? = null,
-    val lotLabel: String? = null
+    val lotLabel: String? = null,
+    val needsPriceReview: Boolean = false
 )
 
 /**
@@ -55,8 +57,14 @@ object ProductIntelligenceEngine {
             currency = extracted.currency,
             stockQuantity = 10,
             primaryImageUrl = primaryImage,
-            status = "DRAFT",
+            status = if (extracted.needsPriceReview) "NEEDS_PRICE_REVIEW" else "DRAFT",
             isPublishedToWebsite = false,
+            isLotOrPackPrice = extracted.isLotOrPackPrice,
+            lotQuantity = extracted.lotQuantity,
+            lotTotalPrice = extracted.lotTotalPrice,
+            lotUnitPriceEstimate = extracted.lotUnitPriceEstimate,
+            lotLabel = extracted.lotLabel,
+            needsPriceReview = extracted.needsPriceReview,
             createdAt = System.currentTimeMillis(),
             updatedAt = System.currentTimeMillis()
         )
@@ -125,8 +133,10 @@ object ProductIntelligenceEngine {
             contactOrOrderLink = contactLink,
             isLotOrPackPrice = priceResult.isLot,
             lotQuantity = priceResult.lotQuantity,
+            lotTotalPrice = priceResult.lotTotalPrice,
             lotUnitPriceEstimate = priceResult.lotUnitPriceEstimate,
-            lotLabel = priceResult.lotLabel
+            lotLabel = priceResult.lotLabel,
+            needsPriceReview = priceResult.needsPriceReview
         )
     }
 
@@ -147,107 +157,160 @@ object ProductIntelligenceEngine {
         val currency: String,
         val isLot: Boolean = false,
         val lotQuantity: Int? = null,
+        val lotTotalPrice: Double? = null,
         val lotUnitPriceEstimate: Double? = null,
-        val lotLabel: String? = null
+        val lotLabel: String? = null,
+        val needsPriceReview: Boolean = false
     )
 
     /**
-     * Extrait le prix fournisseur et la devise détectée (avec support arabe poussé et gestion des prix au lot/colis)
+     * Extrait le prix fournisseur et la devise détectée (avec support arabe poussé et gestion avancée des prix au lot/colis)
+     * Gère notamment les formats comme "💰150 :الثمن dh colis 24pcs", "كولي 24 حبة ب 150 درهم", "prix 150 dh carton 24pcs"
      */
     private fun extractPriceAndCurrency(text: String, defaultCurrency: String): PriceDetectionResult {
-        // Détection de lot/colis/carton en Arabe et Français
-        // Exemples : "كولي 12 بياسة بـ 360 درهم", "كرطونة 24 حبة ثمن 480 د.م", "Lot de 10 pièces : 150 DH", "Colis 12 pcs à 300 MAD"
-        val lotPatternArabic = Pattern.compile("""(?:كولي|كرطونة|كرتونة|كولية|باك|لوط)\s*([0-9]+)?\s*(?:بياسة|حبة|قطعة|بياسات)?\s*[:：=\-]?\s*(?:الثمن|السعر|ثمن|سعر|بـ|ب)?\s*[:：=\-]?\s*([0-9]+(?:[\.,][0-9]+)?)\s*(?:درهم|دراهم|د\.م|دم|dh|DH|MAD)?""", Pattern.CASE_INSENSITIVE)
-        val matcherLotAr = lotPatternArabic.matcher(text)
-        if (matcherLotAr.find()) {
-            val qty = matcherLotAr.group(1)?.toIntOrNull()
-            val totalPrice = matcherLotAr.group(2)?.replace(",", ".")?.toDoubleOrNull()
-            if (totalPrice != null && totalPrice > 0.0) {
-                val unitPrice = if (qty != null && qty > 0) Math.round((totalPrice / qty) * 10.0) / 10.0 else null
-                val label = if (qty != null) "Prix au lot ($qty pièces)" else "Prix au colis / lot"
-                return PriceDetectionResult(
-                    price = unitPrice ?: totalPrice,
-                    currency = "MAD",
-                    isLot = true,
-                    lotQuantity = qty,
-                    lotUnitPriceEstimate = unitPrice,
-                    lotLabel = label
-                )
-            }
-        }
+        // 1. Détection préalable d'information de lot / colis / carton (avant ou après le prix)
+        val lotInfo = detectLotInfo(text)
 
-        val lotPatternLatin = Pattern.compile("""(?:lot|colis|carton|pack)\s*(?:de)?\s*([0-9]+)?\s*(?:pcs|pièces|pieces|u|unités)?\s*[:：=\-]?\s*(?:prix|tarif|coût|cout|price)?\s*[:：=\-]?\s*([0-9]+(?:[\.,][0-9]+)?)\s*(?:€|eur|fcfa|cfa|dh|mad|\$|usd)?""", Pattern.CASE_INSENSITIVE)
-        val matcherLotLat = lotPatternLatin.matcher(text)
-        if (matcherLotLat.find()) {
-            val qty = matcherLotLat.group(1)?.toIntOrNull()
-            val totalPrice = matcherLotLat.group(2)?.replace(",", ".")?.toDoubleOrNull()
-            if (totalPrice != null && totalPrice > 0.0) {
-                val unitPrice = if (qty != null && qty > 0) Math.round((totalPrice / qty) * 10.0) / 10.0 else null
-                val label = if (qty != null) "Prix au lot ($qty pièces)" else "Prix au colis / lot"
-                return PriceDetectionResult(
-                    price = unitPrice ?: totalPrice,
-                    currency = defaultCurrency,
-                    isLot = true,
-                    lotQuantity = qty,
-                    lotUnitPriceEstimate = unitPrice,
-                    lotLabel = label
-                )
-            }
-        }
-
-        // 1. Patterns Arabe Standard
-        // Exemples : "الثمن : 90 درهم", "السعر : 120 د.م", "الثمن 90درهم", "السعر 90", "بـ 85 درهم", "فقط ب 95 درهم"
-        val arabicPriceRegexes = listOf(
+        // 2. Extraction du montant numérique du prix
+        // Patterns multilingues avec support de l'ordre inversé (ex: "150 :الثمن" ou "الثمن: 150")
+        val pricePatterns = listOf(
+            // Format inversé ou standard avec préfixe/suffixe arabe : "150 :الثمن dh", "💰150 :الثمن", "الثمن: 150 dh"
+            Pattern.compile("""([0-9]+(?:[\.,][0-9]+)?)\s*[:：=\-]?\s*(?:الثمن|السعر|ثمن|سعر)\s*(?:درهم|دراهم|د\.م|دم|dh|DH|MAD)?""", Pattern.CASE_INSENSITIVE),
             Pattern.compile("""(?:الثمن|السعر|ثمن|سعر)\s*[:：=\-]?\s*([0-9]+(?:[\.,][0-9]+)?)\s*(?:درهم|دراهم|د\.م|دم|dh|DH|MAD)?""", Pattern.CASE_INSENSITIVE),
             Pattern.compile("""(?:بـ|فقط بـ|ب)\s*([0-9]+(?:[\.,][0-9]+)?)\s*(?:درهم|دراهم|د\.م|دم|dh|DH|MAD)""", Pattern.CASE_INSENSITIVE),
-            Pattern.compile("""([0-9]+(?:[\.,][0-9]+)?)\s*(?:درهم|دراهم|د\.م|دم)""", Pattern.CASE_INSENSITIVE)
-        )
-
-        for (pattern in arabicPriceRegexes) {
-            val matcher = pattern.matcher(text)
-            if (matcher.find()) {
-                val numStr = matcher.group(1)?.replace(",", ".")?.trim()
-                val parsed = numStr?.toDoubleOrNull()
-                if (parsed != null && parsed > 0.0) {
-                    val matchedSegment = matcher.group(0) ?: ""
-                    val currency = if (matchedSegment.contains("درهم") || matchedSegment.contains("د.م") || matchedSegment.contains("دم") || matchedSegment.contains("dh", ignoreCase = true) || matchedSegment.contains("mad", ignoreCase = true)) {
-                        "MAD"
-                    } else {
-                        defaultCurrency
-                    }
-                    return PriceDetectionResult(price = parsed, currency = currency)
-                }
-            }
-        }
-
-        // 2. Patterns Français / International
-        // Exemples : "Prix : 90 DH", "Prix : 45 €", "Prix: 15000 FCFA", "Tarif : 29.99 $"
-        val latinPriceRegexes = listOf(
             Pattern.compile("""(?:prix|tarif|coût|cout|price)\s*[:：=\-]?\s*([0-9]+(?:[\s\.][0-9]{3})*(?:,[0-9]+)?)\s*(?:€|eur|fcfa|cfa|f\s*cfa|dh|mad|\$|usd)?""", Pattern.CASE_INSENSITIVE),
+            Pattern.compile("""([0-9]+(?:[\.,][0-9]+)?)\s*(?:درهم|دراهم|د\.م|دم|dh|DH|MAD)""", Pattern.CASE_INSENSITIVE),
             Pattern.compile("""([0-9]+(?:[\s\.][0-9]{3})*(?:,[0-9]+)?)\s*(?:€|eur|fcfa|cfa|f\s*cfa|dh|mad|\$|usd)""", Pattern.CASE_INSENSITIVE)
         )
 
-        for (pattern in latinPriceRegexes) {
+        var detectedPrice: Double? = null
+        var detectedCurrency = defaultCurrency
+
+        for (pattern in pricePatterns) {
             val matcher = pattern.matcher(text)
             if (matcher.find()) {
                 val numRaw = matcher.group(1)?.replace(" ", "")?.replace(",", ".")?.trim()
                 val parsed = numRaw?.toDoubleOrNull()
                 if (parsed != null && parsed > 0.0) {
-                    val fullMatch = matcher.group(0)?.lowercase(Locale.getDefault()) ?: ""
-                    val currency = when {
-                        fullMatch.contains("fcfa") || fullMatch.contains("cfa") -> "FCFA"
-                        fullMatch.contains("€") || fullMatch.contains("eur") -> "EUR"
-                        fullMatch.contains("$") || fullMatch.contains("usd") -> "USD"
-                        fullMatch.contains("dh") || fullMatch.contains("mad") -> "MAD"
+                    detectedPrice = parsed
+                    val matchedSegment = matcher.group(0)?.lowercase(Locale.getDefault()) ?: ""
+                    detectedCurrency = when {
+                        matchedSegment.contains("درهم") || matchedSegment.contains("د.م") || matchedSegment.contains("دم") ||
+                                matchedSegment.contains("dh") || matchedSegment.contains("mad") -> "MAD"
+                        matchedSegment.contains("fcfa") || matchedSegment.contains("cfa") -> "FCFA"
+                        matchedSegment.contains("€") || matchedSegment.contains("eur") -> "EUR"
+                        matchedSegment.contains("$") || matchedSegment.contains("usd") -> "USD"
                         else -> defaultCurrency
                     }
-                    return PriceDetectionResult(price = parsed, currency = currency)
+                    break
                 }
             }
         }
 
-        // Pas de prix formellement détecté
-        return PriceDetectionResult(price = null, currency = defaultCurrency)
+        // 3. Si un lot / colis est identifié
+        if (lotInfo != null && detectedPrice != null) {
+            val qty = lotInfo.quantity
+            val unitPrice = if (qty != null && qty > 0) {
+                Math.round((detectedPrice / qty) * 100.0) / 100.0
+            } else null
+
+            val label = if (qty != null) {
+                "${lotInfo.keyword} de $qty pièces (Total: $detectedPrice $detectedCurrency, ~${unitPrice ?: "?"} $detectedCurrency/pc)"
+            } else {
+                "Prix au ${lotInfo.keyword.lowercase(Locale.getDefault())} (Total: $detectedPrice $detectedCurrency)"
+            }
+
+            return PriceDetectionResult(
+                price = unitPrice ?: detectedPrice,
+                currency = detectedCurrency,
+                isLot = true,
+                lotQuantity = qty,
+                lotTotalPrice = detectedPrice,
+                lotUnitPriceEstimate = unitPrice,
+                lotLabel = label,
+                needsPriceReview = (qty == null) // A vérifier si la quantité par colis n'a pas pu être extraite
+            )
+        }
+
+        // 4. Si prix standard détecté sans lot
+        if (detectedPrice != null) {
+            return PriceDetectionResult(
+                price = detectedPrice,
+                currency = detectedCurrency,
+                isLot = false,
+                needsPriceReview = false
+            )
+        }
+
+        // 5. Pas de prix formellement détecté (marquage "Prix à vérifier")
+        val mentionsPriceQuery = text.contains("prix", ignoreCase = true) ||
+                text.contains("tarif", ignoreCase = true) ||
+                text.contains("الثمن") ||
+                text.contains("السعر") ||
+                text.contains("كم الثمن") ||
+                text.contains("بشحال")
+
+        return PriceDetectionResult(
+            price = null,
+            currency = defaultCurrency,
+            isLot = false,
+            needsPriceReview = mentionsPriceQuery
+        )
+    }
+
+    private data class LotExtraction(val quantity: Int?, val keyword: String)
+
+    /**
+     * Recherche la présence de mots-clés de lot/colis/carton et extrait la quantité associée
+     */
+    private fun detectLotInfo(text: String): LotExtraction? {
+        val lotPatterns = listOf(
+            // colis 24pcs / carton 24 pcs / pack 12 pcs / lot de 10 pièces
+            Pattern.compile("""(?:colis|carton|pack|lot|كولي|كرطونة|كرتونة|كولية|باك|لوط)\s*(?:de)?\s*([0-9]+)\s*(?:pcs|pc|pièces|pieces|u|unités|بياسة|حبة|قطعة|بياسات)?""", Pattern.CASE_INSENSITIVE),
+            // 24pcs colis / 24 pcs carton / 24 حبة كولي
+            Pattern.compile("""([0-9]+)\s*(?:pcs|pc|pièces|pieces|u|unités|بياسة|حبة|قطعة|بياسات)\s*(?:de)?\s*(?:colis|carton|pack|lot|كولي|كرطونة|كرتونة|كولية|باك|لوط)""", Pattern.CASE_INSENSITIVE),
+            // 24pcs / 24 pcs (si colis ou carton mentionné dans le message)
+            Pattern.compile("""([0-9]+)\s*(?:pcs|pièces|pieces|بياسة|حبة|قطعة)""", Pattern.CASE_INSENSITIVE)
+        )
+
+        val hasKeyword = text.contains("colis", ignoreCase = true) ||
+                text.contains("carton", ignoreCase = true) ||
+                text.contains("pack", ignoreCase = true) ||
+                text.contains("lot", ignoreCase = true) ||
+                text.contains("كولي") ||
+                text.contains("كرطونة") ||
+                text.contains("كرتونة") ||
+                text.contains("كولية") ||
+                text.contains("باك") ||
+                text.contains("لوط")
+
+        for (pattern in lotPatterns) {
+            val matcher = pattern.matcher(text)
+            if (matcher.find()) {
+                val qty = matcher.group(1)?.toIntOrNull()
+                if (qty != null && qty > 1) {
+                    val kw = when {
+                        text.contains("كولي") || text.contains("colis", ignoreCase = true) -> "Colis"
+                        text.contains("كرطونة") || text.contains("كرتونة") || text.contains("carton", ignoreCase = true) -> "Carton"
+                        text.contains("pack", ignoreCase = true) || text.contains("باك") -> "Pack"
+                        else -> "Lot"
+                    }
+                    return LotExtraction(quantity = qty, keyword = kw)
+                }
+            }
+        }
+
+        if (hasKeyword) {
+            val kw = when {
+                text.contains("كولي") || text.contains("colis", ignoreCase = true) -> "Colis"
+                text.contains("كرطونة") || text.contains("كرتونة") || text.contains("carton", ignoreCase = true) -> "Carton"
+                text.contains("pack", ignoreCase = true) || text.contains("باك") -> "Pack"
+                else -> "Lot"
+            }
+            return LotExtraction(quantity = null, keyword = kw)
+        }
+
+        return null
     }
 
     /**

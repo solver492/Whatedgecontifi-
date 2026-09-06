@@ -219,6 +219,7 @@ fun LiveChatSimulator(
     val selectedInstanceId by viewModel.selectedInstanceId.collectAsState()
     val isSimulating by viewModel.isSimulatingReply.collectAsState()
     val agents by viewModel.agents.collectAsState()
+    val conversationOverrides by viewModel.conversationOverrides.collectAsState()
     val selectableModels by viewModel.allSelectableModels.collectAsState()
     val isTermuxOnline by viewModel.isTermuxOnline.collectAsState()
     val bridgePort by viewModel.bridgePort.collectAsState()
@@ -653,29 +654,67 @@ fun LiveChatSimulator(
                 }
 
                 if (selectedContactJid != null) {
+                    val contactJid = selectedContactJid!!
+                    val threadOverride = conversationOverrides.firstOrNull { it.remoteJid == contactJid }
+                    val isThreadAiEnabled = threadOverride?.isAiEnabled ?: true
+                    val contactName = contactThreads.firstOrNull { it.remoteJid == contactJid }?.contactName ?: contactJid
+
                     Spacer(modifier = Modifier.height(6.dp))
-                    Row(
-                        modifier = Modifier
-                            .fillMaxWidth()
-                            .background(ElegantDarkCardDark, RoundedCornerShape(10.dp))
-                            .padding(horizontal = 10.dp, vertical = 6.dp),
-                        verticalAlignment = Alignment.CenterVertically,
-                        horizontalArrangement = Arrangement.SpaceBetween
+                    Surface(
+                        shape = RoundedCornerShape(10.dp),
+                        color = ElegantDarkCardDark,
+                        border = BorderStroke(1.dp, if (!isThreadAiEnabled) Color(0xFFEF5350).copy(alpha = 0.6f) else ElegantDarkBorder),
+                        modifier = Modifier.fillMaxWidth()
                     ) {
-                        Text(
-                            text = "Filtre contact : $selectedContactJid",
-                            style = MaterialTheme.typography.labelSmall,
-                            color = Color(0xFF80D8FF),
-                            fontWeight = FontWeight.Bold,
-                            maxLines = 1,
-                            overflow = TextOverflow.Ellipsis,
-                            modifier = Modifier.weight(1f)
-                        )
-                        TextButton(
-                            onClick = { selectedContactJid = null },
-                            modifier = Modifier.height(30.dp)
+                        Row(
+                            modifier = Modifier.padding(horizontal = 10.dp, vertical = 6.dp),
+                            verticalAlignment = Alignment.CenterVertically,
+                            horizontalArrangement = Arrangement.SpaceBetween
                         ) {
-                            Text("Voir tout", fontSize = 11.sp, color = ElegantPurpleAccent)
+                            Column(modifier = Modifier.weight(1f)) {
+                                Text(
+                                    text = "Discussion : $contactName",
+                                    style = MaterialTheme.typography.labelSmall,
+                                    color = Color(0xFF80D8FF),
+                                    fontWeight = FontWeight.Bold,
+                                    maxLines = 1,
+                                    overflow = TextOverflow.Ellipsis
+                                )
+                                Text(
+                                    text = if (isThreadAiEnabled) "IA Automatique : Active" else "Mode Humain (Reprise manuelle)",
+                                    style = MaterialTheme.typography.labelSmall,
+                                    color = if (isThreadAiEnabled) WhatsAppGreen else Color(0xFFEF5350),
+                                    fontSize = 10.sp
+                                )
+                            }
+
+                            Button(
+                                onClick = {
+                                    viewModel.setConversationAiEnabled(contactJid, contactName, !isThreadAiEnabled)
+                                },
+                                shape = RoundedCornerShape(8.dp),
+                                colors = ButtonDefaults.buttonColors(
+                                    containerColor = if (isThreadAiEnabled) Color(0xFFEF5350).copy(alpha = 0.8f) else WhatsAppGreen
+                                ),
+                                contentPadding = PaddingValues(horizontal = 8.dp, vertical = 4.dp),
+                                modifier = Modifier.height(30.dp)
+                            ) {
+                                Text(
+                                    text = if (isThreadAiEnabled) "Mode Humain" else "Activer IA",
+                                    fontSize = 11.sp,
+                                    fontWeight = FontWeight.Bold,
+                                    color = Color.White
+                                )
+                            }
+
+                            Spacer(modifier = Modifier.width(6.dp))
+
+                            TextButton(
+                                onClick = { selectedContactJid = null },
+                                modifier = Modifier.height(30.dp)
+                            ) {
+                                Text("Voir tout", fontSize = 11.sp, color = ElegantPurpleAccent)
+                            }
                         }
                     }
                 }
@@ -790,17 +829,37 @@ fun LiveChatSimulator(
                                     )
                                 }
                                 Spacer(modifier = Modifier.width(8.dp))
-                                Surface(
-                                    shape = CircleShape,
-                                    color = WhatsAppGreen.copy(alpha = 0.2f)
-                                ) {
-                                    Text(
-                                        text = "${thread.messageCount}",
-                                        modifier = Modifier.padding(horizontal = 8.dp, vertical = 2.dp),
-                                        style = MaterialTheme.typography.labelSmall,
-                                        fontWeight = FontWeight.Bold,
-                                        color = WhatsAppGreen
-                                    )
+                                val threadOverride = conversationOverrides.firstOrNull { it.remoteJid == thread.remoteJid }
+                                val isThreadAiEnabled = threadOverride?.isAiEnabled ?: true
+
+                                Column(horizontalAlignment = Alignment.End) {
+                                    Surface(
+                                        shape = CircleShape,
+                                        color = if (isThreadAiEnabled) WhatsAppGreen.copy(alpha = 0.2f) else Color(0xFFEF5350).copy(alpha = 0.2f)
+                                    ) {
+                                        Text(
+                                            text = if (isThreadAiEnabled) "IA ON" else "Manuel",
+                                            modifier = Modifier.padding(horizontal = 6.dp, vertical = 2.dp),
+                                            style = MaterialTheme.typography.labelSmall,
+                                            fontSize = 9.sp,
+                                            fontWeight = FontWeight.Bold,
+                                            color = if (isThreadAiEnabled) WhatsAppGreen else Color(0xFFEF5350)
+                                        )
+                                    }
+                                    Spacer(modifier = Modifier.height(4.dp))
+                                    Surface(
+                                        shape = CircleShape,
+                                        color = ElegantDarkBorder
+                                    ) {
+                                        Text(
+                                            text = "${thread.messageCount}",
+                                            modifier = Modifier.padding(horizontal = 6.dp, vertical = 2.dp),
+                                            style = MaterialTheme.typography.labelSmall,
+                                            fontWeight = FontWeight.Bold,
+                                            fontSize = 10.sp,
+                                            color = ElegantTextSecondary
+                                        )
+                                    }
                                 }
                             }
                         }

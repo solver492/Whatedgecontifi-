@@ -62,7 +62,7 @@ import java.util.UUID
         AppSettingsEntity::class,
         ConversationAgentOverrideEntity::class
     ],
-    version = 8,
+    version = 9,
     exportSchema = false
 )
 abstract class AppDatabase : RoomDatabase() {

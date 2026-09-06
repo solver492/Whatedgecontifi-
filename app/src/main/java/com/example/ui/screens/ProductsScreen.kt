@@ -37,11 +37,13 @@ import androidx.compose.material.icons.filled.Sell
 import androidx.compose.material.icons.filled.Close
 import androidx.compose.material.icons.filled.PhotoLibrary
 import androidx.compose.material.icons.filled.Videocam
+import androidx.compose.material.icons.filled.Warning
 import androidx.compose.material3.OutlinedButton
 import androidx.compose.foundation.verticalScroll
 import com.example.data.local.entity.ParsedMediaItem
 import com.example.ui.components.MediaCarousel
 import androidx.compose.ui.layout.ContentScale
+import androidx.compose.ui.text.style.TextOverflow
 import coil.compose.AsyncImage
 import androidx.compose.material3.AlertDialog
 import androidx.compose.material3.Button
@@ -480,7 +482,56 @@ private fun ProductCardItem(
                 }
             }
 
-            Spacer(modifier = Modifier.height(10.dp))
+            // Badge Lot / Colis ou Prix à vérifier
+            if (product.isLotOrPackPrice) {
+                Spacer(modifier = Modifier.height(6.dp))
+                Surface(
+                    shape = RoundedCornerShape(6.dp),
+                    color = Color(0xFFF59E0B).copy(alpha = 0.15f),
+                    border = BorderStroke(1.dp, Color(0xFFF59E0B).copy(alpha = 0.4f)),
+                    modifier = Modifier.fillMaxWidth()
+                ) {
+                    Row(
+                        modifier = Modifier.padding(horizontal = 8.dp, vertical = 4.dp),
+                        verticalAlignment = Alignment.CenterVertically
+                    ) {
+                        Icon(Icons.Default.Inventory2, contentDescription = null, tint = Color(0xFFF59E0B), modifier = Modifier.size(13.dp))
+                        Spacer(modifier = Modifier.width(4.dp))
+                        Text(
+                            text = product.lotLabel ?: "Lot de ${product.lotQuantity ?: "?"} pcs",
+                            color = Color(0xFFF59E0B),
+                            fontSize = 10.sp,
+                            fontWeight = FontWeight.SemiBold,
+                            maxLines = 1,
+                            overflow = TextOverflow.Ellipsis
+                        )
+                    }
+                }
+            } else if (product.needsPriceReview || product.purchasePrice == null) {
+                Spacer(modifier = Modifier.height(6.dp))
+                Surface(
+                    shape = RoundedCornerShape(6.dp),
+                    color = Color(0xFFEF5350).copy(alpha = 0.15f),
+                    border = BorderStroke(1.dp, Color(0xFFEF5350).copy(alpha = 0.4f)),
+                    modifier = Modifier.fillMaxWidth()
+                ) {
+                    Row(
+                        modifier = Modifier.padding(horizontal = 8.dp, vertical = 4.dp),
+                        verticalAlignment = Alignment.CenterVertically
+                    ) {
+                        Icon(Icons.Default.Warning, contentDescription = null, tint = Color(0xFFEF5350), modifier = Modifier.size(13.dp))
+                        Spacer(modifier = Modifier.width(4.dp))
+                        Text(
+                            text = "Prix à vérifier (non extrait avec certitude)",
+                            color = Color(0xFFEF5350),
+                            fontSize = 10.sp,
+                            fontWeight = FontWeight.SemiBold
+                        )
+                    }
+                }
+            }
+
+            Spacer(modifier = Modifier.height(8.dp))
 
             // Grille Prix & Stock (Section 4 : Devise dynamique MAD)
             Row(
@@ -716,7 +767,7 @@ private fun ProductDetailDialog(
                         }
                         if (product.purchasePrice != null && product.purchasePrice > 0) {
                             Row(modifier = Modifier.fillMaxWidth(), horizontalArrangement = Arrangement.SpaceBetween) {
-                                Text("Prix d'achat fournisseur :", color = ElegantTextSecondary, fontSize = 12.sp)
+                                Text("Prix d'achat unitaire :", color = ElegantTextSecondary, fontSize = 12.sp)
                                 Text(
                                     PriceFormatter.format(product.purchasePrice, displayCurrency),
                                     color = ElegantTextSecondary,
@@ -736,6 +787,39 @@ private fun ProductDetailDialog(
                                 )
                             }
                         }
+
+                        // Détail Lot / Colis
+                        if (product.isLotOrPackPrice) {
+                            Spacer(modifier = Modifier.height(4.dp))
+                            Surface(
+                                shape = RoundedCornerShape(6.dp),
+                                color = Color(0xFFF59E0B).copy(alpha = 0.12f),
+                                border = BorderStroke(1.dp, Color(0xFFF59E0B).copy(alpha = 0.3f)),
+                                modifier = Modifier.fillMaxWidth()
+                            ) {
+                                Column(modifier = Modifier.padding(8.dp), verticalArrangement = Arrangement.spacedBy(4.dp)) {
+                                    Text(
+                                        "📦 ${product.lotLabel ?: "Prix au Colis / Lot"}",
+                                        color = Color(0xFFF59E0B),
+                                        fontWeight = FontWeight.Bold,
+                                        fontSize = 11.sp
+                                    )
+                                    Row(modifier = Modifier.fillMaxWidth(), horizontalArrangement = Arrangement.SpaceBetween) {
+                                        Text("Total du colis :", color = ElegantTextSecondary, fontSize = 11.sp)
+                                        Text(PriceFormatter.format(product.lotTotalPrice, displayCurrency), color = ElegantTextPrimary, fontSize = 11.sp, fontWeight = FontWeight.SemiBold)
+                                    }
+                                    Row(modifier = Modifier.fillMaxWidth(), horizontalArrangement = Arrangement.SpaceBetween) {
+                                        Text("Quantité par colis :", color = ElegantTextSecondary, fontSize = 11.sp)
+                                        Text("${product.lotQuantity ?: "?"} pièces", color = ElegantTextPrimary, fontSize = 11.sp, fontWeight = FontWeight.SemiBold)
+                                    }
+                                    Row(modifier = Modifier.fillMaxWidth(), horizontalArrangement = Arrangement.SpaceBetween) {
+                                        Text("Prix unitaire estimé :", color = ElegantTextSecondary, fontSize = 11.sp)
+                                        Text("~${PriceFormatter.format(product.lotUnitPriceEstimate ?: product.purchasePrice, displayCurrency)} / pièce", color = WhatsAppGreen, fontSize = 11.sp, fontWeight = FontWeight.Bold)
+                                    }
+                                }
+                            }
+                        }
+
                         Row(modifier = Modifier.fillMaxWidth(), horizontalArrangement = Arrangement.SpaceBetween) {
                             Text("Stock disponible :", color = ElegantTextSecondary, fontSize = 12.sp)
                             Text("${product.stockQuantity} unités", color = ElegantTextPrimary, fontWeight = FontWeight.SemiBold, fontSize = 12.sp)
@@ -806,6 +890,9 @@ private fun ProductEditDialog(
     var selectedCatId by remember { mutableStateOf(initialProduct?.categoryId) }
     var selectedSupId by remember { mutableStateOf(initialProduct?.supplierId ?: suppliers.firstOrNull()?.id) }
     var imageUrl by remember { mutableStateOf(initialProduct?.primaryImageUrl ?: "") }
+    var isLot by remember { mutableStateOf(initialProduct?.isLotOrPackPrice ?: false) }
+    var lotQty by remember { mutableStateOf(initialProduct?.lotQuantity?.toString() ?: "") }
+    var lotTotal by remember { mutableStateOf(initialProduct?.lotTotalPrice?.let { if (it % 1.0 == 0.0) it.toInt().toString() else it.toString() } ?: "") }
 
     AlertDialog(
         onDismissRequest = onDismiss,
@@ -854,6 +941,78 @@ private fun ProductEditDialog(
                         keyboardOptions = KeyboardOptions(keyboardType = KeyboardType.Number),
                         modifier = Modifier.weight(1f)
                     )
+                }
+
+                // Configuration Lot / Colis
+                Surface(
+                    shape = RoundedCornerShape(8.dp),
+                    color = if (isLot) Color(0xFFF59E0B).copy(alpha = 0.1f) else ElegantDarkBg,
+                    border = BorderStroke(1.dp, if (isLot) Color(0xFFF59E0B).copy(alpha = 0.4f) else ElegantDarkBorder),
+                    modifier = Modifier.fillMaxWidth()
+                ) {
+                    Column(modifier = Modifier.padding(8.dp)) {
+                        Row(
+                            verticalAlignment = Alignment.CenterVertically,
+                            modifier = Modifier
+                                .fillMaxWidth()
+                                .clickable { isLot = !isLot }
+                        ) {
+                            Icon(
+                                Icons.Default.Inventory2,
+                                contentDescription = null,
+                                tint = if (isLot) Color(0xFFF59E0B) else ElegantTextSecondary,
+                                modifier = Modifier.size(16.dp)
+                            )
+                            Spacer(modifier = Modifier.width(6.dp))
+                            Text(
+                                "Prix au colis / lot (Grossiste)",
+                                color = if (isLot) Color(0xFFF59E0B) else ElegantTextSecondary,
+                                fontSize = 12.sp,
+                                fontWeight = if (isLot) FontWeight.Bold else FontWeight.Normal,
+                                modifier = Modifier.weight(1f)
+                            )
+                            Text(
+                                if (isLot) "Activé" else "Désactivé",
+                                color = if (isLot) Color(0xFFF59E0B) else ElegantTextSecondary.copy(alpha = 0.6f),
+                                fontSize = 11.sp,
+                                fontWeight = FontWeight.SemiBold
+                            )
+                        }
+
+                        if (isLot) {
+                            Spacer(modifier = Modifier.height(8.dp))
+                            Row(horizontalArrangement = Arrangement.spacedBy(8.dp)) {
+                                OutlinedTextField(
+                                    value = lotTotal,
+                                    onValueChange = {
+                                        lotTotal = it
+                                        val total = it.toDoubleOrNull()
+                                        val qty = lotQty.toIntOrNull()
+                                        if (total != null && qty != null && qty > 0) {
+                                            buyPrice = String.format(java.util.Locale.US, "%.2f", total / qty)
+                                        }
+                                    },
+                                    label = { Text("Total Colis ($defaultCurrency)") },
+                                    keyboardOptions = KeyboardOptions(keyboardType = KeyboardType.Number),
+                                    modifier = Modifier.weight(1f)
+                                )
+                                OutlinedTextField(
+                                    value = lotQty,
+                                    onValueChange = {
+                                        lotQty = it
+                                        val total = lotTotal.toDoubleOrNull()
+                                        val qty = it.toIntOrNull()
+                                        if (total != null && qty != null && qty > 0) {
+                                            buyPrice = String.format(java.util.Locale.US, "%.2f", total / qty)
+                                        }
+                                    },
+                                    label = { Text("Pièces / Colis") },
+                                    keyboardOptions = KeyboardOptions(keyboardType = KeyboardType.Number),
+                                    modifier = Modifier.weight(1f)
+                                )
+                            }
+                        }
+                    }
                 }
 
                 OutlinedTextField(
@@ -934,6 +1093,14 @@ private fun ProductEditDialog(
                                 supplierId = selectedSupId,
                                 primaryImageUrl = imageUrl.ifBlank { null },
                                 currency = if (initialProduct?.currency.isNullOrBlank() || initialProduct?.currency == "FCFA") defaultCurrency else initialProduct!!.currency,
+                                isLotOrPackPrice = isLot,
+                                lotQuantity = if (isLot) lotQty.toIntOrNull() else null,
+                                lotTotalPrice = if (isLot) lotTotal.toDoubleOrNull() else null,
+                                lotUnitPriceEstimate = if (isLot && (lotQty.toIntOrNull() ?: 0) > 0 && lotTotal.toDoubleOrNull() != null) {
+                                    lotTotal.toDouble() / lotQty.toInt()
+                                } else null,
+                                lotLabel = if (isLot) "Colis de ${lotQty.ifBlank { "?" }} pcs" else null,
+                                needsPriceReview = false,
                                 updatedAt = System.currentTimeMillis()
                             )
                             onSave(product)

@@ -20,8 +20,14 @@ data class ProductEntity(
     val currency: String = "MAD",
     val stockQuantity: Int = 0,
     val primaryImageUrl: String? = null,
-    val status: String = "DRAFT",            // DRAFT, VALIDATED, PUBLISHED, ARCHIVED
+    val status: String = "DRAFT",            // DRAFT, VALIDATED, PUBLISHED, ARCHIVED, NEEDS_PRICE_REVIEW
     val isPublishedToWebsite: Boolean = false,
+    val isLotOrPackPrice: Boolean = false,
+    val lotQuantity: Int? = null,
+    val lotTotalPrice: Double? = null,
+    val lotUnitPriceEstimate: Double? = null,
+    val lotLabel: String? = null,
+    val needsPriceReview: Boolean = false,
     val createdAt: Long = System.currentTimeMillis(),
     val updatedAt: Long = System.currentTimeMillis()
 )

@@ -45,6 +45,9 @@ interface CommerceDao {
     @Query("SELECT * FROM ecommerce_product_media WHERE productId = :productId ORDER BY sortOrder ASC")
     suspend fun getMediaListForProduct(productId: String): List<ProductMediaEntity>
 
+    @Query("SELECT * FROM ecommerce_product_media WHERE productId = :productId ORDER BY sortOrder ASC")
+    suspend fun getProductMediaList(productId: String): List<ProductMediaEntity>
+
     @Insert(onConflict = OnConflictStrategy.REPLACE)
     suspend fun insertProductMedia(media: List<ProductMediaEntity>)
 

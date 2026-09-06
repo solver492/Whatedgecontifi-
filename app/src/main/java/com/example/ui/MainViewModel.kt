@@ -480,10 +480,37 @@ class MainViewModel(application: Application) : AndroidViewModel(application) {
                 contactName = contactName,
                 isAiEnabled = isEnabled,
                 forcedAgentId = null,
+                disabledAgentIdsCsv = "",
                 updatedAt = System.currentTimeMillis()
             )
             database.agentDao().insertOrUpdateConversationOverride(updated)
             _syncMessage.value = if (isEnabled) "IA activée pour $remoteJid" else "IA désactivée pour $remoteJid (Mode Humain)"
+        }
+    }
+
+    fun toggleAgentForConversation(remoteJid: String, contactName: String, agentId: String, enable: Boolean) {
+        viewModelScope.launch(Dispatchers.IO) {
+            val existing = database.agentDao().getConversationOverride(remoteJid)
+            val currentDisabled = existing?.disabledAgentIdsCsv?.split(",")?.map { it.trim() }?.filter { it.isNotEmpty() }?.toMutableSet() ?: mutableSetOf()
+            if (enable) {
+                currentDisabled.remove(agentId)
+            } else {
+                currentDisabled.add(agentId)
+            }
+            val updated = existing?.copy(
+                disabledAgentIdsCsv = currentDisabled.joinToString(","),
+                contactName = if (contactName.isNotBlank()) contactName else existing.contactName,
+                updatedAt = System.currentTimeMillis()
+            ) ?: ConversationAgentOverrideEntity(
+                remoteJid = remoteJid,
+                contactName = contactName,
+                isAiEnabled = true,
+                forcedAgentId = null,
+                disabledAgentIdsCsv = currentDisabled.joinToString(","),
+                updatedAt = System.currentTimeMillis()
+            )
+            database.agentDao().insertOrUpdateConversationOverride(updated)
+            _syncMessage.value = if (enable) "Agent activé pour cette discussion" else "Agent désactivé pour cette discussion (Mode Manuel)"
         }
     }
 
