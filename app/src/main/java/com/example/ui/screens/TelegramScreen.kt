@@ -1264,9 +1264,10 @@ fun TelegramScreen(
                         if (newChannelTitle.isNotBlank()) {
                             val accountId = activeAccount?.id ?: "default_account"
                             val cleanUser = newChannelUsername.removePrefix("@").trim()
-                            viewModel.toggleChannelMonitoring(
-                                channelId = "${accountId}_manual_${System.currentTimeMillis()}",
-                                isMonitored = true
+                            viewModel.addManualTelegramChannel(
+                                title = newChannelTitle,
+                                username = cleanUser,
+                                accountId = accountId
                             )
                             showAddChannelDialog = false
                             toastMessage = "Canal '$newChannelTitle' ajouté à la surveillance !"
