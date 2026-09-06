@@ -137,4 +137,14 @@ interface CommerceDao {
 
     @Delete
     suspend fun deleteOrder(order: OrderEntity)
+
+    // --- PURGE DONNÉES DE DÉMONSTRATION ---
+    @Query("DELETE FROM ecommerce_products WHERE id IN ('prod-airpods-pro', 'prod-smartwatch-ultra', 'prod-sneaker-dunk') OR title LIKE '%Montre Connectée Ultra 49mm AMOLED%' OR title LIKE '%Sneakers Urban Low Classic Edition%' OR title LIKE '%Écouteurs Sans Fil Pro ANC Bluetooth 5.3%'")
+    suspend fun purgeDemoProducts()
+
+    @Query("DELETE FROM ecommerce_orders WHERE id IN ('ord-1001', 'ord-1002', 'ord-1003') OR productId IN ('prod-airpods-pro', 'prod-smartwatch-ultra', 'prod-sneaker-dunk')")
+    suspend fun purgeDemoOrders()
+
+    @Query("UPDATE ecommerce_products SET currency = :newCurrency WHERE currency = 'FCFA' OR currency IS NULL OR currency = ''")
+    suspend fun updateLegacyProductCurrencies(newCurrency: String)
 }

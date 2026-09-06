@@ -389,22 +389,22 @@ Rassure le client, note sa demande et propose de réserver un créneau ou de lai
             commerceDao.insertShippingAgency(
                 ShippingAgencyEntity(
                     id = "ship-express-01",
-                    name = "Colis Express Dakar & Banlieue",
-                    coverageZones = "Dakar Centre, Plateau, Almadies, Guédiawaye, Pikine",
-                    baseRate = 2000.0,
-                    currency = "FCFA",
-                    contactPhone = "+221 77 123 45 67",
+                    name = "Colis Express Livraison Rapide",
+                    coverageZones = "Casablanca, Rabat, Marrakech, Tanger",
+                    baseRate = 35.0,
+                    currency = "MAD",
+                    contactPhone = "+212 60 123 45 67",
                     averageDeliveryHours = 12
                 )
             )
             commerceDao.insertShippingAgency(
                 ShippingAgencyEntity(
                     id = "ship-regions-02",
-                    name = "Sahel Logistique Régions",
-                    coverageZones = "Thiès, Mbour, Saint-Louis, Touba, Kaolack",
-                    baseRate = 3500.0,
-                    currency = "FCFA",
-                    contactPhone = "+221 76 999 88 77",
+                    name = "Logistique Nationale Régions",
+                    coverageZones = "Agadir, Fès, Meknès, Oujda",
+                    baseRate = 45.0,
+                    currency = "MAD",
+                    contactPhone = "+212 60 999 88 77",
                     averageDeliveryHours = 36
                 )
             )
@@ -413,134 +413,16 @@ Rassure le client, note sa demande et propose de réserver un créneau ou de lai
             commerceDao.insertAffiliate(
                 AffiliateEntity(
                     id = "aff-fatou-01",
-                    fullName = "Fatou Kiné Sène",
-                    referralCode = "FATOU10",
+                    fullName = "Partenaire Commercial VIP",
+                    referralCode = "VIP10",
                     commissionRatePercent = 8.0,
-                    phone = "+221 77 654 32 10",
-                    totalEarnings = 48500.0,
+                    phone = "+212 60 654 32 10",
+                    totalEarnings = 450.0,
                     totalSalesCount = 14
                 )
             )
-            commerceDao.insertAffiliate(
-                AffiliateEntity(
-                    id = "aff-moussa-02",
-                    fullName = "Moussa Traoré",
-                    referralCode = "MOUSSA_VIP",
-                    commissionRatePercent = 10.0,
-                    phone = "+221 70 812 34 56",
-                    totalEarnings = 72000.0,
-                    totalSalesCount = 21
-                )
-            )
 
-            // Produits
-            commerceDao.insertProduct(
-                ProductEntity(
-                    id = "prod-airpods-pro",
-                    title = "Écouteurs Sans Fil Pro ANC Bluetooth 5.3",
-                    description = "Réduction active du bruit, autonomie 30h avec boîtier MagSafe, son spatial 3D. Idéal pour appels et musique.",
-                    categoryId = "cat-tech",
-                    supplierId = "sup-canal-01",
-                    purchasePrice = 9500.0,
-                    sellingPrice = 18500.0,
-                    currency = "FCFA",
-                    stockQuantity = 45,
-                    status = "VALIDATED",
-                    isPublishedToWebsite = true
-                )
-            )
-            commerceDao.insertProduct(
-                ProductEntity(
-                    id = "prod-smartwatch-ultra",
-                    title = "Montre Connectée Ultra 49mm AMOLED",
-                    description = "Suivi cardiaque, oxymètre SpO2, étanche IP68, 100 modes sport, appels Bluetooth mains-libres.",
-                    categoryId = "cat-tech",
-                    supplierId = "sup-canal-01",
-                    purchasePrice = 14000.0,
-                    sellingPrice = 27000.0,
-                    currency = "FCFA",
-                    stockQuantity = 22,
-                    status = "PUBLISHED",
-                    isPublishedToWebsite = true
-                )
-            )
-            commerceDao.insertProduct(
-                ProductEntity(
-                    id = "prod-sneaker-dunk",
-                    title = "Sneakers Urban Low Classic Edition",
-                    description = "Cuir premium synthétique, semelle anti-dérapante renforcée, disponibles pointures 40 à 45.",
-                    categoryId = "cat-mode",
-                    supplierId = "sup-canal-02",
-                    purchasePrice = 13500.0,
-                    sellingPrice = 24900.0,
-                    currency = "FCFA",
-                    stockQuantity = 16,
-                    status = "VALIDATED",
-                    isPublishedToWebsite = false
-                )
-            )
-
-            // Commandes & Clients à appeler
-            commerceDao.insertOrder(
-                OrderEntity(
-                    id = "ord-1001",
-                    orderNumber = "CMD-2026-0814",
-                    customerName = "Ibrahima Ndiaye",
-                    customerPhone = "+221 77 345 88 12",
-                    deliveryAddress = "Sacré-Cœur 3, Villa 104 en face de la boulangerie",
-                    deliveryZone = "Dakar Centre",
-                    productId = "prod-airpods-pro",
-                    productName = "Écouteurs Sans Fil Pro ANC Bluetooth 5.3",
-                    quantity = 1,
-                    totalAmount = 18500.0,
-                    currency = "FCFA",
-                    status = "PENDING_CONFIRMATION",
-                    assignedShippingAgencyId = "ship-express-01",
-                    affiliateCode = "FATOU10",
-                    customerCallNotes = "Client disponible pour confirmation à partir de 14h.",
-                    callAttemptsCount = 0
-                )
-            )
-            commerceDao.insertOrder(
-                OrderEntity(
-                    id = "ord-1002",
-                    orderNumber = "CMD-2026-0815",
-                    customerName = "Aïssatou Ba",
-                    customerPhone = "+221 78 412 90 33",
-                    deliveryAddress = "Mermoz Pyrotechnie, Immeuble Horizon 2ème étage",
-                    deliveryZone = "Dakar Centre",
-                    productId = "prod-smartwatch-ultra",
-                    productName = "Montre Connectée Ultra 49mm AMOLED",
-                    quantity = 1,
-                    totalAmount = 27000.0,
-                    currency = "FCFA",
-                    status = "PENDING_CONFIRMATION",
-                    assignedShippingAgencyId = "ship-express-01",
-                    affiliateCode = "MOUSSA_VIP",
-                    customerCallNotes = "Préfère livraison avant 18h ou le weekend.",
-                    callAttemptsCount = 1
-                )
-            )
-            commerceDao.insertOrder(
-                OrderEntity(
-                    id = "ord-1003",
-                    orderNumber = "CMD-2026-0816",
-                    customerName = "Cheikh Oumar Tall",
-                    customerPhone = "+221 76 555 41 89",
-                    deliveryAddress = "Cité Keur Gorgui, Immeuble Sonatel",
-                    deliveryZone = "Dakar Centre",
-                    productId = "prod-sneaker-dunk",
-                    productName = "Sneakers Urban Low Classic Edition (Taille 43)",
-                    quantity = 2,
-                    totalAmount = 49800.0,
-                    currency = "FCFA",
-                    status = "CONFIRMED_CALL",
-                    assignedShippingAgencyId = "ship-express-01",
-                    affiliateCode = null,
-                    customerCallNotes = "Client appelé et validé. Confirme paiement à la livraison.",
-                    callAttemptsCount = 1
-                )
-            )
+            // Catalogue Produits : Initialisé vide. Les produits proviennent exclusivement des messages importés ou saisis manuellement.
 
             // 7. Paramètres Généraux de l'Application (Maroc + MAD par défaut)
             val settingsDao = database.settingsDao()

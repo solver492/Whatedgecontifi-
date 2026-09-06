@@ -193,6 +193,11 @@ class MainViewModel(application: Application) : AndroidViewModel(application) {
 
         // Clean up legacy demo instances and ensure real WhatsApp instance exists
         viewModelScope.launch(Dispatchers.IO) {
+            // Purge demo products, demo orders and update legacy currencies
+            database.commerceDao().purgeDemoProducts()
+            database.commerceDao().purgeDemoOrders()
+            database.commerceDao().updateLegacyProductCurrencies("MAD")
+
             val waDao = database.whatsAppDao()
             val msgDao = database.whatsAppMessageDao()
             val allInst = waDao.getAllInstancesList()
@@ -810,6 +815,55 @@ class MainViewModel(application: Application) : AndroidViewModel(application) {
         }
         database.telegramDao().markMessageProcessed(message.id)
         product
+    }
+
+    fun createProductFromTelegram(
+        message: TelegramMessageEntity,
+        categoryId: String?,
+        customTitle: String? = null,
+        purchasePrice: Double? = null,
+        sellingPrice: Double? = null,
+        currency: String? = null,
+        onComplete: ((ProductEntity) -> Unit)? = null
+    ) {
+        viewModelScope.launch(Dispatchers.IO) {
+            val curr = currency ?: appSettings.value.currency.ifBlank { "MAD" }
+            val (extractedProd, _) = ProductIntelligenceEngine.extractFromTelegramMessage(message, curr)
+            val mediaItems = message.getMediaItems()
+
+            val primaryImg = mediaItems.firstOrNull { !it.isVideo }?.let { it.localPath ?: it.url }
+                ?: mediaItems.firstOrNull()?.let { it.localPath ?: it.url }
+                ?: extractedProd.primaryImageUrl
+
+            val finalProduct = extractedProd.copy(
+                title = customTitle?.takeIf { it.isNotBlank() } ?: extractedProd.title,
+                categoryId = categoryId, // null si "Non catégorisé" (pas de catégorie factice "Général")
+                purchasePrice = purchasePrice ?: extractedProd.purchasePrice,
+                sellingPrice = sellingPrice ?: extractedProd.sellingPrice,
+                currency = curr,
+                primaryImageUrl = primaryImg
+            )
+
+            database.commerceDao().insertProduct(finalProduct)
+
+            if (mediaItems.isNotEmpty()) {
+                val mediaEntities = mediaItems.mapIndexed { index, item ->
+                    ProductMediaEntity(
+                        id = java.util.UUID.randomUUID().toString(),
+                        productId = finalProduct.id,
+                        mediaUrl = item.url ?: item.localPath ?: "",
+                        mediaType = if (item.isVideo) "video" else "photo",
+                        sortOrder = index
+                    )
+                }
+                database.commerceDao().insertProductMedia(mediaEntities)
+            }
+
+            database.telegramDao().markMessageProcessed(message.id)
+            withContext(Dispatchers.Main) {
+                onComplete?.invoke(finalProduct)
+            }
+        }
     }
 
     fun deleteProduct(product: ProductEntity) {

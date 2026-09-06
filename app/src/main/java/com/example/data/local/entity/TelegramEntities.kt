@@ -54,27 +54,69 @@ data class TelegramMessageEntity(
     val rawJson: String? = null
 ) {
     fun getMediaUrls(): List<String> {
-        val list = mutableListOf<String>()
-        if (!mediaUrl.isNullOrBlank()) {
-            list.add(mediaUrl)
-        }
+        return getMediaItems().mapNotNull { it.url ?: it.localPath }
+    }
+
+    fun getMediaItems(): List<ParsedMediaItem> {
+        val items = mutableListOf<ParsedMediaItem>()
         if (!rawJson.isNullOrBlank()) {
             try {
                 val obj = org.json.JSONObject(rawJson)
-                val arr = obj.optJSONArray("media_urls")
-                if (arr != null) {
-                    for (i in 0 until arr.length()) {
-                        val u = arr.getString(i)
-                        if (!list.contains(u)) {
-                            list.add(u)
-                        }
+                val urlsArr = obj.optJSONArray("media_urls")
+                val pathsArr = obj.optJSONArray("local_media_paths")
+                val len = maxOf(urlsArr?.length() ?: 0, pathsArr?.length() ?: 0)
+                for (i in 0 until len) {
+                    val u = if (urlsArr != null && i < urlsArr.length()) urlsArr.getString(i) else null
+                    val p = if (pathsArr != null && i < pathsArr.length()) pathsArr.getString(i) else null
+                    val isVid = (u?.let { isVideoUrlOrPath(it) } == true) ||
+                            (p?.let { isVideoUrlOrPath(it) } == true) ||
+                            (mediaType == "video" && len == 1)
+                    if (!u.isNullOrBlank() || !p.isNullOrBlank()) {
+                        items.add(ParsedMediaItem(url = u, localPath = p, isVideo = isVid))
                     }
                 }
             } catch (e: Exception) {
                 // Ignore parse errors
             }
         }
-        return list
+        if (items.isEmpty()) {
+            if (!mediaUrl.isNullOrBlank() || !localMediaPath.isNullOrBlank()) {
+                val isVid = (mediaType == "video") ||
+                        (mediaUrl?.let { isVideoUrlOrPath(it) } == true) ||
+                        (localMediaPath?.let { isVideoUrlOrPath(it) } == true)
+                items.add(ParsedMediaItem(url = mediaUrl, localPath = localMediaPath, isVideo = isVid))
+            }
+        }
+        return items
+    }
+
+    private fun isVideoUrlOrPath(pathOrUrl: String): Boolean {
+        val lower = pathOrUrl.lowercase()
+        return lower.endsWith(".mp4") || lower.endsWith(".mov") || lower.endsWith(".mkv") ||
+                lower.endsWith(".webm") || lower.endsWith(".avi") || lower.contains("video")
+    }
+}
+
+data class ParsedMediaItem(
+    val url: String? = null,
+    val localPath: String? = null,
+    val isVideo: Boolean = false
+) {
+    fun getDisplayModel(): Any? {
+        if (!localPath.isNullOrBlank()) {
+            val file = java.io.File(localPath)
+            if (file.exists() && file.length() > 0) {
+                return file
+            }
+        }
+        if (!url.isNullOrBlank()) {
+            if (url.startsWith("/")) {
+                val file = java.io.File(url)
+                if (file.exists()) return file
+            }
+            return url
+        }
+        return null
     }
 }
 

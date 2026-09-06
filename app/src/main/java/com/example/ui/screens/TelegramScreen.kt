@@ -87,6 +87,14 @@ import androidx.compose.ui.text.input.PasswordVisualTransformation
 import androidx.compose.ui.text.style.TextOverflow
 import androidx.compose.ui.unit.dp
 import androidx.compose.ui.unit.sp
+import androidx.compose.foundation.clickable
+import androidx.compose.foundation.horizontalScroll
+import androidx.compose.foundation.rememberScrollState
+import androidx.compose.foundation.verticalScroll
+import com.example.data.local.entity.AppSettingsEntity
+import com.example.data.local.entity.CategoryEntity
+import com.example.domain.intelligence.ProductIntelligenceEngine
+import com.example.ui.components.MediaCarousel
 import com.example.data.local.entity.ProductEntity
 import com.example.data.local.entity.TelegramAccountEntity
 import com.example.data.local.entity.TelegramChannelEntity
@@ -125,11 +133,13 @@ fun TelegramScreen(
     val telegramStatus by viewModel.telegramStatus.collectAsState()
     val isLoading by viewModel.isTelegramLoading.collectAsState()
     val appSettings by viewModel.appSettings.collectAsState()
+    val categories by viewModel.commerceCategories.collectAsState()
     val hiddenChannelIds by viewModel.hiddenChannelIds.collectAsState()
 
     var selectedSection by remember { mutableStateOf(0) }
     var showTermuxDialog by remember { mutableStateOf(false) }
     var showAddChannelDialog by remember { mutableStateOf(false) }
+    var selectedMessageForProductCreation by remember { mutableStateOf<TelegramMessageEntity?>(null) }
     var toastMessage by remember { mutableStateOf<String?>(null) }
 
     // Channel exploration state
@@ -1015,8 +1025,20 @@ fun TelegramScreen(
 
                             Spacer(modifier = Modifier.height(10.dp))
 
-                            // Media badge if any
-                            if (msg.mediaType != "none") {
+                            // Carrousel Multimédia plein format (Section 1 : Photos & Vidéos avec swipe direct)
+                            val mediaItems = remember(msg.id, msg.rawJson, msg.mediaUrl, msg.localMediaPath) {
+                                msg.getMediaItems()
+                            }
+
+                            if (mediaItems.isNotEmpty()) {
+                                MediaCarousel(
+                                    mediaItems = mediaItems,
+                                    height = 240.dp,
+                                    modifier = Modifier
+                                        .fillMaxWidth()
+                                        .padding(bottom = 10.dp)
+                                )
+                            } else if (msg.mediaType != "none") {
                                 Surface(
                                     shape = RoundedCornerShape(6.dp),
                                     color = TelegramBlue.copy(alpha = 0.15f),
@@ -1061,21 +1083,7 @@ fun TelegramScreen(
                             ) {
                                 Button(
                                     onClick = {
-                                        val generatedProduct = ProductEntity(
-                                            id = "prod_${System.currentTimeMillis()}",
-                                            title = msg.text.take(50).replace("\n", " ").trim().ifBlank { "Arrivage ${msg.channelTitle}" },
-                                            description = msg.text,
-                                            sourceTelegramMessageId = msg.messageId,
-                                            sourceChannelTitle = msg.channelTitle,
-                                            purchasePrice = 12000.0,
-                                            sellingPrice = 18500.0,
-                                            currency = "FCFA",
-                                            stockQuantity = 25,
-                                            primaryImageUrl = msg.mediaUrl,
-                                            status = "DRAFT"
-                                        )
-                                        viewModel.saveProduct(generatedProduct)
-                                        toastMessage = "Produit créé et ajouté au catalogue E-commerce !"
+                                        selectedMessageForProductCreation = msg
                                     },
                                     shape = RoundedCornerShape(8.dp),
                                     contentPadding = PaddingValues(horizontal = 10.dp, vertical = 6.dp),
@@ -1537,4 +1545,198 @@ fun TelegramScreen(
             containerColor = ElegantDarkSurface
         )
     }
+
+    // Modal de création de produit avec choix explicite de catégorie (Section 5)
+    selectedMessageForProductCreation?.let { msgToConvert ->
+        CreateProductFromTelegramDialog(
+            message = msgToConvert,
+            categories = categories,
+            appSettings = appSettings,
+            onDismiss = { selectedMessageForProductCreation = null },
+            onConfirm = { catId, customTitle, pPrice, sPrice ->
+                viewModel.createProductFromTelegram(
+                    message = msgToConvert,
+                    categoryId = catId,
+                    customTitle = customTitle,
+                    purchasePrice = pPrice,
+                    sellingPrice = sPrice,
+                    currency = appSettings.currency.ifBlank { "MAD" }
+                ) { createdProd ->
+                    toastMessage = "Produit '${createdProd.title}' créé avec succès !"
+                }
+                selectedMessageForProductCreation = null
+            }
+        )
+    }
+}
+
+/**
+ * Dialog de création de produit à partir d'un message Telegram capturé.
+ * Permet d'assigner une catégorie réelle ou de laisser explicite "Non catégorisé",
+ * et applique la devise configurée dans Paramètres (Section 4 et 5).
+ */
+@Composable
+fun CreateProductFromTelegramDialog(
+    message: TelegramMessageEntity,
+    categories: List<CategoryEntity>,
+    appSettings: AppSettingsEntity,
+    onDismiss: () -> Unit,
+    onConfirm: (categoryId: String?, title: String, purchasePrice: Double?, sellingPrice: Double?) -> Unit
+) {
+    val currency = appSettings.currency.ifBlank { "MAD" }
+    val extracted = remember(message.id) {
+        ProductIntelligenceEngine.extractFromTelegramMessage(message, currency)
+    }
+
+    var title by remember { mutableStateOf(extracted.first.title) }
+    var purchasePriceInput by remember {
+        mutableStateOf(extracted.first.purchasePrice?.let { if (it % 1.0 == 0.0) it.toInt().toString() else it.toString() } ?: "")
+    }
+    var sellingPriceInput by remember {
+        mutableStateOf(extracted.first.sellingPrice?.let { if (it % 1.0 == 0.0) it.toInt().toString() else it.toString() } ?: "")
+    }
+    var selectedCategoryId by remember { mutableStateOf<String?>(null) } // "Non catégorisé" par défaut
+
+    val mediaItems = remember(message.id) { message.getMediaItems() }
+
+    AlertDialog(
+        onDismissRequest = onDismiss,
+        title = {
+            Row(verticalAlignment = Alignment.CenterVertically) {
+                Icon(Icons.Default.ShoppingBag, contentDescription = null, tint = ElegantGreenActive, modifier = Modifier.size(22.dp))
+                Spacer(modifier = Modifier.width(8.dp))
+                Text("Créer Fiche Produit E-commerce", fontWeight = FontWeight.Bold, fontSize = 16.sp, color = ElegantTextPrimary)
+            }
+        },
+        text = {
+            Column(
+                modifier = Modifier
+                    .fillMaxWidth()
+                    .verticalScroll(rememberScrollState()),
+                verticalArrangement = Arrangement.spacedBy(10.dp)
+            ) {
+                // Aperçu carrousel des médias du message
+                if (mediaItems.isNotEmpty()) {
+                    Text(
+                        "Médias détectés (${mediaItems.size}) :",
+                        color = ElegantTextSecondary,
+                        fontSize = 12.sp,
+                        fontWeight = FontWeight.SemiBold
+                    )
+                    MediaCarousel(
+                        mediaItems = mediaItems,
+                        height = 150.dp,
+                        modifier = Modifier.fillMaxWidth()
+                    )
+                }
+
+                // Titre
+                OutlinedTextField(
+                    value = title,
+                    onValueChange = { title = it },
+                    label = { Text("Titre de la fiche *") },
+                    singleLine = true,
+                    modifier = Modifier.fillMaxWidth()
+                )
+
+                // Prix en devise configurée (MAD)
+                Row(horizontalArrangement = Arrangement.spacedBy(8.dp)) {
+                    OutlinedTextField(
+                        value = purchasePriceInput,
+                        onValueChange = { purchasePriceInput = it },
+                        label = { Text("Prix Achat ($currency)") },
+                        keyboardOptions = KeyboardOptions(keyboardType = KeyboardType.Number),
+                        modifier = Modifier.weight(1f)
+                    )
+                    OutlinedTextField(
+                        value = sellingPriceInput,
+                        onValueChange = { sellingPriceInput = it },
+                        label = { Text("Prix Vente ($currency)") },
+                        keyboardOptions = KeyboardOptions(keyboardType = KeyboardType.Number),
+                        modifier = Modifier.weight(1f)
+                    )
+                }
+
+                // Sélection de Catégorie explicite (Section 5 : Jamais de faux "Général")
+                Text(
+                    "Catégorie assignée (Routage IA) :",
+                    color = ElegantTextSecondary,
+                    fontSize = 12.sp,
+                    fontWeight = FontWeight.SemiBold
+                )
+
+                // Option "Non catégorisé" + catégories existantes
+                Row(
+                    modifier = Modifier
+                        .fillMaxWidth()
+                        .horizontalScroll(rememberScrollState()),
+                    horizontalArrangement = Arrangement.spacedBy(6.dp)
+                ) {
+                    val isNoneSelected = selectedCategoryId == null
+                    Surface(
+                        shape = RoundedCornerShape(8.dp),
+                        color = if (isNoneSelected) ElegantOrangeNotice.copy(alpha = 0.2f) else ElegantDarkCard,
+                        border = BorderStroke(1.dp, if (isNoneSelected) ElegantOrangeNotice else ElegantDarkBorder),
+                        modifier = Modifier.clickable { selectedCategoryId = null }
+                    ) {
+                        Text(
+                            "Non catégorisé",
+                            color = if (isNoneSelected) ElegantOrangeNotice else ElegantTextSecondary,
+                            fontSize = 11.sp,
+                            fontWeight = if (isNoneSelected) FontWeight.Bold else FontWeight.Normal,
+                            modifier = Modifier.padding(horizontal = 10.dp, vertical = 6.dp)
+                        )
+                    }
+
+                    categories.forEach { cat ->
+                        val isSelected = selectedCategoryId == cat.id
+                        Surface(
+                            shape = RoundedCornerShape(8.dp),
+                            color = if (isSelected) TelegramBlue.copy(alpha = 0.2f) else ElegantDarkCard,
+                            border = BorderStroke(1.dp, if (isSelected) TelegramBlue else ElegantDarkBorder),
+                            modifier = Modifier.clickable { selectedCategoryId = cat.id }
+                        ) {
+                            Text(
+                                cat.name,
+                                color = if (isSelected) TelegramBlue else ElegantTextSecondary,
+                                fontSize = 11.sp,
+                                fontWeight = if (isSelected) FontWeight.Bold else FontWeight.Normal,
+                                modifier = Modifier.padding(horizontal = 10.dp, vertical = 6.dp)
+                            )
+                        }
+                    }
+                }
+
+                Spacer(modifier = Modifier.height(10.dp))
+
+                Button(
+                    onClick = {
+                        if (title.isNotBlank()) {
+                            val pPrice = purchasePriceInput.toDoubleOrNull()
+                            val sPrice = sellingPriceInput.toDoubleOrNull()
+                            onConfirm(selectedCategoryId, title, pPrice, sPrice)
+                        }
+                    },
+                    colors = ButtonDefaults.buttonColors(containerColor = ElegantGreenActive),
+                    shape = RoundedCornerShape(10.dp),
+                    modifier = Modifier
+                        .fillMaxWidth()
+                        .height(48.dp)
+                ) {
+                    Icon(Icons.Default.ShoppingBag, contentDescription = null, modifier = Modifier.size(16.dp))
+                    Spacer(modifier = Modifier.width(8.dp))
+                    Text("Créer la Fiche Produit", color = Color.White, fontWeight = FontWeight.Bold)
+                }
+
+                TextButton(
+                    onClick = onDismiss,
+                    modifier = Modifier.fillMaxWidth()
+                ) {
+                    Text("Annuler", color = ElegantTextSecondary)
+                }
+            }
+        },
+        confirmButton = {},
+        containerColor = ElegantDarkSurface
+    )
 }

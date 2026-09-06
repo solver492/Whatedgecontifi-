@@ -17,7 +17,7 @@ data class ProductEntity(
     val supplierId: String? = null,
     val purchasePrice: Double? = null,       // Prix fournisseur / achat (NULL si non détecté)
     val sellingPrice: Double? = null,        // Prix de vente conseillé
-    val currency: String = "FCFA",
+    val currency: String = "MAD",
     val stockQuantity: Int = 0,
     val primaryImageUrl: String? = null,
     val status: String = "DRAFT",            // DRAFT, VALIDATED, PUBLISHED, ARCHIVED
@@ -95,8 +95,8 @@ data class ShippingAgencyEntity(
     @PrimaryKey val id: String,
     val name: String,
     val coverageZones: String,               // ex: "Dakar, Thiès, Mbour" ou "Abidjan Sud"
-    val baseRate: Double = 1500.0,
-    val currency: String = "FCFA",
+    val baseRate: Double = 35.0,
+    val currency: String = "MAD",
     val contactPhone: String = "",
     val averageDeliveryHours: Int = 24,
     val isActive: Boolean = true
@@ -114,7 +114,7 @@ data class AffiliateEntity(
     val phone: String = "",
     val totalEarnings: Double = 0.0,
     val totalSalesCount: Int = 0,
-    val currency: String = "FCFA",
+    val currency: String = "MAD",
     val isActive: Boolean = true
 )
 
@@ -133,7 +133,7 @@ data class OrderEntity(
     val productName: String,
     val quantity: Int = 1,
     val totalAmount: Double,
-    val currency: String = "FCFA",
+    val currency: String = "MAD",
     val status: String = "PENDING_CONFIRMATION", // PENDING_CONFIRMATION, CONFIRMED_CALL, IN_DELIVERY, DELIVERED, CANCELLED
     val assignedShippingAgencyId: String? = null,
     val affiliateCode: String? = null,
