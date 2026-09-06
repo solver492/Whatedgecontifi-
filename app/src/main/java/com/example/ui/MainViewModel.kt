@@ -4,9 +4,18 @@ import android.app.Application
 import androidx.lifecycle.AndroidViewModel
 import androidx.lifecycle.viewModelScope
 import com.example.data.local.AppDatabase
+import com.example.data.local.entity.AffiliateEntity
 import com.example.data.local.entity.AgentEntity
+import com.example.data.local.entity.CategoryEntity
 import com.example.data.local.entity.KnowledgeSourceEntity
 import com.example.data.local.entity.McpToolEntity
+import com.example.data.local.entity.OrderEntity
+import com.example.data.local.entity.PriceContactEntity
+import com.example.data.local.entity.ProductEntity
+import com.example.data.local.entity.ShippingAgencyEntity
+import com.example.data.local.entity.SupplierEntity
+import com.example.data.local.entity.TelegramAccountEntity
+import com.example.data.local.entity.TelegramChannelEntity
 import com.example.data.local.entity.WebhookConfigEntity
 import com.example.data.local.entity.WhatsAppInstanceEntity
 import com.example.data.local.entity.WhatsAppMessageEntity
@@ -18,6 +27,9 @@ import com.example.domain.engine.AiEdgeQuantizerEngine
 import com.example.domain.engine.EdgeModelCatalogItem
 import com.example.domain.engine.EdgeQuantizedModelInfo
 import com.example.domain.engine.LocalModelManager
+import com.example.domain.telegram.TelegramAuthResult
+import com.example.domain.telegram.TelegramBridgeStatus
+import com.example.domain.telegram.TelegramService
 import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.flow.MutableStateFlow
 import kotlinx.coroutines.flow.SharingStarted
@@ -56,6 +68,57 @@ class MainViewModel(application: Application) : AndroidViewModel(application) {
     val bridgeRunning = bridgeServer.isRunning
     val bridgePort = bridgeServer.serverPort
     val bridgeLogs = bridgeServer.logs
+
+    val telegramService = TelegramService(application, database)
+    val telegramAccounts: StateFlow<List<TelegramAccountEntity>> = database.telegramDao()
+        .getAllAccounts()
+        .stateIn(viewModelScope, SharingStarted.WhileSubscribed(5000), emptyList())
+
+    val telegramChannels: StateFlow<List<TelegramChannelEntity>> = database.telegramDao()
+        .getAllMonitoredChannels()
+        .stateIn(viewModelScope, SharingStarted.WhileSubscribed(5000), emptyList())
+
+    private val _isTelegramBridgeOnline = MutableStateFlow(false)
+    val isTelegramBridgeOnline: StateFlow<Boolean> = _isTelegramBridgeOnline.asStateFlow()
+
+    private val _telegramStatus = MutableStateFlow<TelegramBridgeStatus?>(null)
+    val telegramStatus: StateFlow<TelegramBridgeStatus?> = _telegramStatus.asStateFlow()
+
+    private val _isTelegramLoading = MutableStateFlow(false)
+    val isTelegramLoading: StateFlow<Boolean> = _isTelegramLoading.asStateFlow()
+
+    // Commerce Flow States
+    val commerceProducts: StateFlow<List<ProductEntity>> = database.commerceDao()
+        .getAllProducts()
+        .stateIn(viewModelScope, SharingStarted.WhileSubscribed(5000), emptyList())
+
+    val commerceCategories: StateFlow<List<CategoryEntity>> = database.commerceDao()
+        .getAllCategories()
+        .stateIn(viewModelScope, SharingStarted.WhileSubscribed(5000), emptyList())
+
+    val commerceSuppliers: StateFlow<List<SupplierEntity>> = database.commerceDao()
+        .getAllSuppliers()
+        .stateIn(viewModelScope, SharingStarted.WhileSubscribed(5000), emptyList())
+
+    val commercePriceContacts: StateFlow<List<PriceContactEntity>> = database.commerceDao()
+        .getAllPriceContacts()
+        .stateIn(viewModelScope, SharingStarted.WhileSubscribed(5000), emptyList())
+
+    val commerceShippingAgencies: StateFlow<List<ShippingAgencyEntity>> = database.commerceDao()
+        .getAllShippingAgencies()
+        .stateIn(viewModelScope, SharingStarted.WhileSubscribed(5000), emptyList())
+
+    val commerceAffiliates: StateFlow<List<AffiliateEntity>> = database.commerceDao()
+        .getAllAffiliates()
+        .stateIn(viewModelScope, SharingStarted.WhileSubscribed(5000), emptyList())
+
+    val commerceOrders: StateFlow<List<OrderEntity>> = database.commerceDao()
+        .getAllOrders()
+        .stateIn(viewModelScope, SharingStarted.WhileSubscribed(5000), emptyList())
+
+    val commerceOrdersToCall: StateFlow<List<OrderEntity>> = database.commerceDao()
+        .getOrdersToCall()
+        .stateIn(viewModelScope, SharingStarted.WhileSubscribed(5000), emptyList())
 
     val allSelectableModels: StateFlow<List<SelectableModelOption>> = combine(
         modelManager.downloadedModels,
@@ -525,6 +588,181 @@ class MainViewModel(application: Application) : AndroidViewModel(application) {
             _quantizationStatus.value = "Exporting LiteRT-LM INT4 artifact (Cosine Similarity: 0.988, RAM: -62%). Terminé avec succès !"
             kotlinx.coroutines.delay(2000)
             _quantizationStatus.value = null
+        }
+    }
+
+    // =========================================================================
+    // --- TELEGRAM TELETHON SUITE (Phase 1) ---
+    // =========================================================================
+
+    fun refreshTelegramStatus() {
+        viewModelScope.launch {
+            val status = telegramService.checkStatus()
+            _telegramStatus.value = status
+            _isTelegramBridgeOnline.value = status.isOnline
+        }
+    }
+
+    fun sendTelegramCode(
+        apiId: String,
+        apiHash: String,
+        phone: String,
+        onResult: (TelegramAuthResult) -> Unit
+    ) {
+        viewModelScope.launch {
+            _isTelegramLoading.value = true
+            val result = telegramService.sendVerificationCode(apiId, apiHash, phone)
+            _isTelegramLoading.value = false
+            onResult(result)
+            refreshTelegramStatus()
+        }
+    }
+
+    fun verifyTelegramCode(
+        phone: String,
+        code: String,
+        password: String? = null,
+        onResult: (TelegramAuthResult) -> Unit
+    ) {
+        viewModelScope.launch {
+            _isTelegramLoading.value = true
+            val result = telegramService.verifyCodeAndSignIn(phone, code, password)
+            _isTelegramLoading.value = false
+            onResult(result)
+            refreshTelegramStatus()
+        }
+    }
+
+    fun toggleChannelMonitoring(channelId: String, isMonitored: Boolean) {
+        viewModelScope.launch(Dispatchers.IO) {
+            database.telegramDao().updateChannelMonitoring(channelId, isMonitored)
+        }
+    }
+
+    fun disconnectTelegramAccount(accountId: String) {
+        viewModelScope.launch {
+            _isTelegramLoading.value = true
+            telegramService.disconnectAccount(accountId)
+            _isTelegramLoading.value = false
+            refreshTelegramStatus()
+        }
+    }
+
+    fun syncTelegramChannels(accountId: String) {
+        viewModelScope.launch {
+            _isTelegramLoading.value = true
+            telegramService.syncChannels(accountId)
+            _isTelegramLoading.value = false
+        }
+    }
+
+    fun openTermuxForTelegram(context: android.content.Context) {
+        telegramService.openTermux(context)
+    }
+
+    // =========================================================================
+    // --- E-COMMERCE MODULE ACTIONS (Phase 5 & Modules) ---
+    // =========================================================================
+
+    fun saveProduct(product: ProductEntity) {
+        viewModelScope.launch(Dispatchers.IO) {
+            database.commerceDao().insertProduct(product)
+        }
+    }
+
+    fun deleteProduct(product: ProductEntity) {
+        viewModelScope.launch(Dispatchers.IO) {
+            database.commerceDao().deleteProduct(product)
+        }
+    }
+
+    fun toggleProductPublish(product: ProductEntity) {
+        viewModelScope.launch(Dispatchers.IO) {
+            database.commerceDao().updateProduct(
+                product.copy(
+                    isPublishedToWebsite = !product.isPublishedToWebsite,
+                    status = if (!product.isPublishedToWebsite) "PUBLISHED" else "VALIDATED",
+                    updatedAt = System.currentTimeMillis()
+                )
+            )
+        }
+    }
+
+    fun saveCategory(category: CategoryEntity) {
+        viewModelScope.launch(Dispatchers.IO) {
+            database.commerceDao().insertCategory(category)
+        }
+    }
+
+    fun deleteCategory(category: CategoryEntity) {
+        viewModelScope.launch(Dispatchers.IO) {
+            database.commerceDao().deleteCategory(category)
+        }
+    }
+
+    fun saveSupplier(supplier: SupplierEntity) {
+        viewModelScope.launch(Dispatchers.IO) {
+            database.commerceDao().insertSupplier(supplier)
+        }
+    }
+
+    fun deleteSupplier(supplier: SupplierEntity) {
+        viewModelScope.launch(Dispatchers.IO) {
+            database.commerceDao().deleteSupplier(supplier)
+        }
+    }
+
+    fun savePriceContact(contact: PriceContactEntity) {
+        viewModelScope.launch(Dispatchers.IO) {
+            database.commerceDao().insertPriceContact(contact)
+        }
+    }
+
+    fun deletePriceContact(contact: PriceContactEntity) {
+        viewModelScope.launch(Dispatchers.IO) {
+            database.commerceDao().deletePriceContact(contact)
+        }
+    }
+
+    fun saveShippingAgency(agency: ShippingAgencyEntity) {
+        viewModelScope.launch(Dispatchers.IO) {
+            database.commerceDao().insertShippingAgency(agency)
+        }
+    }
+
+    fun deleteShippingAgency(agency: ShippingAgencyEntity) {
+        viewModelScope.launch(Dispatchers.IO) {
+            database.commerceDao().deleteShippingAgency(agency)
+        }
+    }
+
+    fun saveAffiliate(affiliate: AffiliateEntity) {
+        viewModelScope.launch(Dispatchers.IO) {
+            database.commerceDao().insertAffiliate(affiliate)
+        }
+    }
+
+    fun deleteAffiliate(affiliate: AffiliateEntity) {
+        viewModelScope.launch(Dispatchers.IO) {
+            database.commerceDao().deleteAffiliate(affiliate)
+        }
+    }
+
+    fun saveOrder(order: OrderEntity) {
+        viewModelScope.launch(Dispatchers.IO) {
+            database.commerceDao().insertOrder(order)
+        }
+    }
+
+    fun updateOrderStatusAndNotes(orderId: String, newStatus: String, notes: String) {
+        viewModelScope.launch(Dispatchers.IO) {
+            database.commerceDao().updateOrderStatusAndNotes(orderId, newStatus, notes)
+        }
+    }
+
+    fun deleteOrder(order: OrderEntity) {
+        viewModelScope.launch(Dispatchers.IO) {
+            database.commerceDao().deleteOrder(order)
         }
     }
 }

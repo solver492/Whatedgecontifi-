@@ -6,14 +6,25 @@ import androidx.room.Room
 import androidx.room.RoomDatabase
 import androidx.sqlite.db.SupportSQLiteDatabase
 import com.example.data.local.dao.AgentDao
+import com.example.data.local.dao.CommerceDao
 import com.example.data.local.dao.KnowledgeDao
 import com.example.data.local.dao.McpDao
+import com.example.data.local.dao.TelegramDao
 import com.example.data.local.dao.WebhookDao
 import com.example.data.local.dao.WhatsAppDao
 import com.example.data.local.dao.WhatsAppMessageDao
+import com.example.data.local.entity.AffiliateEntity
 import com.example.data.local.entity.AgentEntity
+import com.example.data.local.entity.CategoryEntity
 import com.example.data.local.entity.KnowledgeSourceEntity
 import com.example.data.local.entity.McpToolEntity
+import com.example.data.local.entity.OrderEntity
+import com.example.data.local.entity.PriceContactEntity
+import com.example.data.local.entity.ProductEntity
+import com.example.data.local.entity.ShippingAgencyEntity
+import com.example.data.local.entity.SupplierEntity
+import com.example.data.local.entity.TelegramAccountEntity
+import com.example.data.local.entity.TelegramChannelEntity
 import com.example.data.local.entity.WebhookConfigEntity
 import com.example.data.local.entity.WhatsAppInstanceEntity
 import com.example.data.local.entity.WhatsAppMessageEntity
@@ -29,9 +40,18 @@ import java.util.UUID
         KnowledgeSourceEntity::class,
         McpToolEntity::class,
         WhatsAppMessageEntity::class,
-        WebhookConfigEntity::class
+        WebhookConfigEntity::class,
+        TelegramAccountEntity::class,
+        TelegramChannelEntity::class,
+        ProductEntity::class,
+        CategoryEntity::class,
+        SupplierEntity::class,
+        PriceContactEntity::class,
+        ShippingAgencyEntity::class,
+        AffiliateEntity::class,
+        OrderEntity::class
     ],
-    version = 2,
+    version = 4,
     exportSchema = false
 )
 abstract class AppDatabase : RoomDatabase() {
@@ -41,6 +61,8 @@ abstract class AppDatabase : RoomDatabase() {
     abstract fun mcpDao(): McpDao
     abstract fun whatsAppMessageDao(): WhatsAppMessageDao
     abstract fun webhookDao(): WebhookDao
+    abstract fun telegramDao(): TelegramDao
+    abstract fun commerceDao(): CommerceDao
 
     companion object {
         @Volatile
@@ -271,6 +293,242 @@ Rassure le client, note sa demande et propose de réserver un créneau ou de lai
                     isEnabled = true,
                     lastPingSuccess = true,
                     lastPingTimestamp = System.currentTimeMillis() - 120000
+                )
+            )
+
+            // 6. Commerce initial data
+            val commerceDao = database.commerceDao()
+
+            // Catégories
+            commerceDao.insertCategory(
+                CategoryEntity(
+                    id = "cat-tech",
+                    name = "Électronique & High-Tech",
+                    slug = "electronique",
+                    description = "Smartphones, écouteurs, montres connectées, chargeurs rapides",
+                    iconName = "Devices",
+                    assignedAgentId = "agent-sales-01",
+                    productCount = 12
+                )
+            )
+            commerceDao.insertCategory(
+                CategoryEntity(
+                    id = "cat-mode",
+                    name = "Mode & Chaussures",
+                    slug = "mode-chaussures",
+                    description = "Sneakers, vêtements tendances, maroquinerie",
+                    iconName = "Checkroom",
+                    assignedAgentId = "agent-sales-01",
+                    productCount = 8
+                )
+            )
+            commerceDao.insertCategory(
+                CategoryEntity(
+                    id = "cat-beaute",
+                    name = "Beauté & Bien-être",
+                    slug = "beaute-soin",
+                    description = "Soins du visage, parfums, sérums hydratants",
+                    iconName = "Spa",
+                    assignedAgentId = "agent-support-02",
+                    productCount = 5
+                )
+            )
+
+            // Fournisseurs
+            commerceDao.insertSupplier(
+                SupplierEntity(
+                    id = "sup-canal-01",
+                    name = "Grossiste Import Dubai & Chine",
+                    telegramUsername = "import_dubai_direct",
+                    telegramChannelId = -1001849201934L,
+                    phone = "+221 77 842 19 20",
+                    address = "Zone Franche Industrielle, Entrepôt B4",
+                    reliabilityRating = 4.8f,
+                    notes = "Canal Telegram très actif, arrivages hebdomadaires le mardi"
+                )
+            )
+            commerceDao.insertSupplier(
+                SupplierEntity(
+                    id = "sup-canal-02",
+                    name = "Sneakers Factory Dakar",
+                    telegramUsername = "dakar_sneakers_hub",
+                    telegramChannelId = -1001928374651L,
+                    phone = "+221 78 510 33 44",
+                    address = "Marché HLM, Boutique 12",
+                    reliabilityRating = 4.5f,
+                    notes = "Fournisseur local avec stock immédiat et prix dégressifs"
+                )
+            )
+
+            // Grille de Tarifs & Contacts
+            commerceDao.insertPriceContact(
+                PriceContactEntity(
+                    id = "contact-sup-01",
+                    supplierId = "sup-canal-01",
+                    supplierName = "Grossiste Import Dubai & Chine",
+                    contactPerson = "M. Amadou Diallo (Responsable Expéditions)",
+                    contactPhone = "+221 77 842 19 20",
+                    negotiatedDiscountPercent = 12.5,
+                    paymentTerms = "Acompte 30% commande, solde à réception",
+                    minOrderQuantity = 5,
+                    specialNotes = "Accepte Wave, Orange Money et virement bancaire"
+                )
+            )
+
+            // Agences de Livraison
+            commerceDao.insertShippingAgency(
+                ShippingAgencyEntity(
+                    id = "ship-express-01",
+                    name = "Colis Express Dakar & Banlieue",
+                    coverageZones = "Dakar Centre, Plateau, Almadies, Guédiawaye, Pikine",
+                    baseRate = 2000.0,
+                    currency = "FCFA",
+                    contactPhone = "+221 77 123 45 67",
+                    averageDeliveryHours = 12
+                )
+            )
+            commerceDao.insertShippingAgency(
+                ShippingAgencyEntity(
+                    id = "ship-regions-02",
+                    name = "Sahel Logistique Régions",
+                    coverageZones = "Thiès, Mbour, Saint-Louis, Touba, Kaolack",
+                    baseRate = 3500.0,
+                    currency = "FCFA",
+                    contactPhone = "+221 76 999 88 77",
+                    averageDeliveryHours = 36
+                )
+            )
+
+            // Partenaires Affiliés
+            commerceDao.insertAffiliate(
+                AffiliateEntity(
+                    id = "aff-fatou-01",
+                    fullName = "Fatou Kiné Sène",
+                    referralCode = "FATOU10",
+                    commissionRatePercent = 8.0,
+                    phone = "+221 77 654 32 10",
+                    totalEarnings = 48500.0,
+                    totalSalesCount = 14
+                )
+            )
+            commerceDao.insertAffiliate(
+                AffiliateEntity(
+                    id = "aff-moussa-02",
+                    fullName = "Moussa Traoré",
+                    referralCode = "MOUSSA_VIP",
+                    commissionRatePercent = 10.0,
+                    phone = "+221 70 812 34 56",
+                    totalEarnings = 72000.0,
+                    totalSalesCount = 21
+                )
+            )
+
+            // Produits
+            commerceDao.insertProduct(
+                ProductEntity(
+                    id = "prod-airpods-pro",
+                    title = "Écouteurs Sans Fil Pro ANC Bluetooth 5.3",
+                    description = "Réduction active du bruit, autonomie 30h avec boîtier MagSafe, son spatial 3D. Idéal pour appels et musique.",
+                    categoryId = "cat-tech",
+                    supplierId = "sup-canal-01",
+                    purchasePrice = 9500.0,
+                    sellingPrice = 18500.0,
+                    currency = "FCFA",
+                    stockQuantity = 45,
+                    status = "VALIDATED",
+                    isPublishedToWebsite = true
+                )
+            )
+            commerceDao.insertProduct(
+                ProductEntity(
+                    id = "prod-smartwatch-ultra",
+                    title = "Montre Connectée Ultra 49mm AMOLED",
+                    description = "Suivi cardiaque, oxymètre SpO2, étanche IP68, 100 modes sport, appels Bluetooth mains-libres.",
+                    categoryId = "cat-tech",
+                    supplierId = "sup-canal-01",
+                    purchasePrice = 14000.0,
+                    sellingPrice = 27000.0,
+                    currency = "FCFA",
+                    stockQuantity = 22,
+                    status = "PUBLISHED",
+                    isPublishedToWebsite = true
+                )
+            )
+            commerceDao.insertProduct(
+                ProductEntity(
+                    id = "prod-sneaker-dunk",
+                    title = "Sneakers Urban Low Classic Edition",
+                    description = "Cuir premium synthétique, semelle anti-dérapante renforcée, disponibles pointures 40 à 45.",
+                    categoryId = "cat-mode",
+                    supplierId = "sup-canal-02",
+                    purchasePrice = 13500.0,
+                    sellingPrice = 24900.0,
+                    currency = "FCFA",
+                    stockQuantity = 16,
+                    status = "VALIDATED",
+                    isPublishedToWebsite = false
+                )
+            )
+
+            // Commandes & Clients à appeler
+            commerceDao.insertOrder(
+                OrderEntity(
+                    id = "ord-1001",
+                    orderNumber = "CMD-2026-0814",
+                    customerName = "Ibrahima Ndiaye",
+                    customerPhone = "+221 77 345 88 12",
+                    deliveryAddress = "Sacré-Cœur 3, Villa 104 en face de la boulangerie",
+                    deliveryZone = "Dakar Centre",
+                    productId = "prod-airpods-pro",
+                    productName = "Écouteurs Sans Fil Pro ANC Bluetooth 5.3",
+                    quantity = 1,
+                    totalAmount = 18500.0,
+                    currency = "FCFA",
+                    status = "PENDING_CONFIRMATION",
+                    assignedShippingAgencyId = "ship-express-01",
+                    affiliateCode = "FATOU10",
+                    customerCallNotes = "Client disponible pour confirmation à partir de 14h.",
+                    callAttemptsCount = 0
+                )
+            )
+            commerceDao.insertOrder(
+                OrderEntity(
+                    id = "ord-1002",
+                    orderNumber = "CMD-2026-0815",
+                    customerName = "Aïssatou Ba",
+                    customerPhone = "+221 78 412 90 33",
+                    deliveryAddress = "Mermoz Pyrotechnie, Immeuble Horizon 2ème étage",
+                    deliveryZone = "Dakar Centre",
+                    productId = "prod-smartwatch-ultra",
+                    productName = "Montre Connectée Ultra 49mm AMOLED",
+                    quantity = 1,
+                    totalAmount = 27000.0,
+                    currency = "FCFA",
+                    status = "PENDING_CONFIRMATION",
+                    assignedShippingAgencyId = "ship-express-01",
+                    affiliateCode = "MOUSSA_VIP",
+                    customerCallNotes = "Préfère livraison avant 18h ou le weekend.",
+                    callAttemptsCount = 1
+                )
+            )
+            commerceDao.insertOrder(
+                OrderEntity(
+                    id = "ord-1003",
+                    orderNumber = "CMD-2026-0816",
+                    customerName = "Cheikh Oumar Tall",
+                    customerPhone = "+221 76 555 41 89",
+                    deliveryAddress = "Cité Keur Gorgui, Immeuble Sonatel",
+                    deliveryZone = "Dakar Centre",
+                    productId = "prod-sneaker-dunk",
+                    productName = "Sneakers Urban Low Classic Edition (Taille 43)",
+                    quantity = 2,
+                    totalAmount = 49800.0,
+                    currency = "FCFA",
+                    status = "CONFIRMED_CALL",
+                    assignedShippingAgencyId = "ship-express-01",
+                    affiliateCode = null,
+                    customerCallNotes = "Client appelé et validé. Confirme paiement à la livraison.",
+                    callAttemptsCount = 1
                 )
             )
         }
