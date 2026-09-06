@@ -14,67 +14,67 @@ import kotlinx.coroutines.flow.Flow
 import kotlinx.coroutines.withContext
 import org.json.JSONArray
 import org.json.JSONObject
-import java.io.BufferedReader
-import java.io.InputStreamReader
 import java.io.OutputStreamWriter
 import java.net.HttpURLConnection
 import java.net.URL
-import java.util.UUID
-
-data class TelegramBridgeStatus(
-    val isOnline: Boolean,
-    val isAuthenticated: Boolean,
-    val port: Int,
-    val firstName: String = "",
-    val username: String = "",
-    val userId: Long = 0L,
-    val phoneNumber: String = ""
-)
 
 data class TelegramAuthResult(
     val success: Boolean,
     val message: String,
+    val phoneCodeHash: String? = null,
     val requiresPassword: Boolean = false,
-    val phoneCodeHash: String = "",
-    val userFirstName: String = "",
-    val username: String = "",
-    val userId: Long = 0L
+    val userFirstName: String? = null,
+    val username: String? = null,
+    val userId: Long? = null
+)
+
+data class TelegramBridgeStatus(
+    val isOnline: Boolean,
+    val isAuthenticated: Boolean,
+    val status: String = "DISCONNECTED",
+    val port: Int = 8088,
+    val monitoredChannelsCount: Int = 0,
+    val userFirstName: String? = null,
+    val username: String? = null,
+    val userId: Long? = null
 )
 
 class TelegramService(
-    private val context: Context,
-    private val database: AppDatabase
+    private val database: AppDatabase,
+    private val defaultPort: Int = 8088
 ) {
     private val TAG = "TelegramService"
-    val defaultPort = TelegramBridgeScript.TELEGRAM_DEFAULT_PORT
 
-    suspend fun checkStatus(port: Int = defaultPort): TelegramBridgeStatus = withContext(Dispatchers.IO) {
+    /**
+     * Interroge l'état réel du bridge Python Termux sur localhost.
+     * Zéro simulation : si le port ne répond pas, retourne isOnline = false.
+     */
+    suspend fun checkBridgeStatus(port: Int = defaultPort): TelegramBridgeStatus = withContext(Dispatchers.IO) {
         try {
-            val url = URL("http://127.0.0.1:$port/status")
+            val url = URL("http://127.0.0.1:$port/telegram/status")
             val conn = (url.openConnection() as HttpURLConnection).apply {
                 connectTimeout = 1500
-                readTimeout = 1500
+                readTimeout = 2000
                 requestMethod = "GET"
             }
             if (conn.responseCode == 200) {
-                val response = conn.inputStream.bufferedReader().use { it.readText() }
-                val json = JSONObject(response)
-                val online = json.optBoolean("online", false)
-                val authenticated = json.optBoolean("authenticated", false)
+                val responseText = conn.inputStream.bufferedReader().use { it.readText() }
+                val json = JSONObject(responseText)
+                val isOnline = json.optBoolean("online", false)
+                val isAuth = json.optBoolean("authenticated", false)
+                val statusStr = json.optString("status", "DISCONNECTED")
+                val monitoredCount = json.optInt("monitored_channels_count", 0)
                 val userObj = json.optJSONObject("user")
-                val firstName = userObj?.optString("first_name") ?: ""
-                val username = userObj?.optString("username") ?: ""
-                val userId = userObj?.optLong("id") ?: 0L
-                val phone = userObj?.optString("phone") ?: ""
 
                 TelegramBridgeStatus(
-                    isOnline = online,
-                    isAuthenticated = authenticated,
+                    isOnline = isOnline,
+                    isAuthenticated = isAuth,
+                    status = statusStr,
                     port = port,
-                    firstName = firstName,
-                    username = username,
-                    userId = userId,
-                    phoneNumber = phone
+                    monitoredChannelsCount = monitoredCount,
+                    userFirstName = userObj?.optString("first_name"),
+                    username = userObj?.optString("username"),
+                    userId = userObj?.optLong("id")
                 )
             } else {
                 TelegramBridgeStatus(isOnline = false, isAuthenticated = false, port = port)
@@ -84,6 +84,11 @@ class TelegramService(
         }
     }
 
+    /**
+     * Envoie la demande de code à Telethon.
+     * Si les identifiants ou le numéro sont invalides, retourne l'erreur exacte.
+     * Zéro complaisance ou simulation : pas de faux succès.
+     */
     suspend fun sendVerificationCode(
         apiId: String,
         apiHash: String,
@@ -94,12 +99,18 @@ class TelegramService(
         val cleanApiId = apiId.trim()
         val cleanApiHash = apiHash.trim()
 
-        // 1. Try real bridge first
+        if (cleanApiId.isBlank() || cleanApiHash.isBlank() || cleanPhone.isBlank()) {
+            return@withContext TelegramAuthResult(
+                success = false,
+                message = "API ID, API Hash et Numéro de Téléphone sont obligatoires."
+            )
+        }
+
         try {
-            val url = URL("http://127.0.0.1:$port/auth/send-code")
+            val url = URL("http://127.0.0.1:$port/telegram/auth/start")
             val conn = (url.openConnection() as HttpURLConnection).apply {
-                connectTimeout = 5000
-                readTimeout = 8000
+                connectTimeout = 7000
+                readTimeout = 12000
                 requestMethod = "POST"
                 setRequestProperty("Content-Type", "application/json")
                 doOutput = true
@@ -121,30 +132,33 @@ class TelegramService(
                 val json = JSONObject(responseText)
                 val hash = json.optString("phone_code_hash", "")
                 saveOrUpdateAccount(cleanPhone, cleanApiId, cleanApiHash, "CODE_SENT", port)
+                logEvent("AUTH", "Demande de code Telegram envoyée pour $cleanPhone")
                 return@withContext TelegramAuthResult(
                     success = true,
-                    message = "Code de vérification envoyé sur votre compte Telegram / SMS",
+                    message = "Code de vérification envoyé sur votre compte Telegram officiel",
                     phoneCodeHash = hash
                 )
             } else {
                 val err = try { JSONObject(responseText).optString("error", responseText) } catch (e: Exception) { responseText }
+                logEvent("ERROR", "Échec envoi code Telegram: $err")
                 return@withContext TelegramAuthResult(
                     success = false,
-                    message = "Erreur Telethon: $err"
+                    message = "Erreur Telegram : $err"
                 )
             }
         } catch (e: Exception) {
-            Log.w(TAG, "Bridge local non joignable (${e.message}), initialisation mode autonome")
-            // Fallback: Save local account state to allow immediate user flow & pairing test
-            saveOrUpdateAccount(cleanPhone, cleanApiId, cleanApiHash, "CODE_SENT", port)
+            Log.e(TAG, "Bridge local non joignable (${e.message})")
             return@withContext TelegramAuthResult(
-                success = true,
-                message = "Mode direct préparé. Code de test: 12345 (ou lancez Termux pour le code SMS officiel)",
-                phoneCodeHash = "local_hash_${System.currentTimeMillis()}"
+                success = false,
+                message = "Bridge Python hors-ligne. Veuillez lancer la commande Termux pour démarrer 'telegram-bridge.py' (Port $port)."
             )
         }
     }
 
+    /**
+     * Valide le code SMS / Telegram auprès de Telethon.
+     * N'enregistre le compte en CONNECTED que si Telethon confirme la connexion.
+     */
     suspend fun verifyCodeAndSignIn(
         phoneNumber: String,
         code: String,
@@ -154,11 +168,18 @@ class TelegramService(
         val cleanPhone = phoneNumber.trim().replace(" ", "")
         val cleanCode = code.trim()
 
+        if (cleanPhone.isBlank() || cleanCode.isBlank()) {
+            return@withContext TelegramAuthResult(
+                success = false,
+                message = "Le numéro et le code de confirmation sont requis."
+            )
+        }
+
         try {
-            val url = URL("http://127.0.0.1:$port/auth/sign-in")
+            val url = URL("http://127.0.0.1:$port/telegram/auth/confirm")
             val conn = (url.openConnection() as HttpURLConnection).apply {
-                connectTimeout = 6000
-                readTimeout = 10000
+                connectTimeout = 8000
+                readTimeout = 15000
                 requestMethod = "POST"
                 setRequestProperty("Content-Type", "application/json")
                 doOutput = true
@@ -181,28 +202,43 @@ class TelegramService(
             if (responseCode == 200) {
                 val json = JSONObject(responseText)
                 val user = json.optJSONObject("user")
-                val firstName = user?.optString("first_name", "Telegram User") ?: "Telegram User"
+                val firstName = user?.optString("first_name", "Compte Telegram") ?: "Compte Telegram"
+                val lastName = user?.optString("last_name", "") ?: ""
                 val username = user?.optString("username", "") ?: ""
-                val userId = user?.optLong("id", System.currentTimeMillis()) ?: System.currentTimeMillis()
+                val userId = user?.optLong("id", 0L) ?: 0L
 
-                val existing = database.telegramDao().getAllAccounts()
                 val current = database.telegramDao().getAccountById(cleanPhone)
                 if (current != null) {
                     database.telegramDao().markAccountConnected(
                         id = current.id,
                         firstName = firstName,
-                        lastName = user?.optString("last_name", "") ?: "",
+                        lastName = lastName,
                         username = username,
                         userId = userId
                     )
+                } else {
+                    database.telegramDao().insertAccount(
+                        TelegramAccountEntity(
+                            id = cleanPhone,
+                            phoneNumber = cleanPhone,
+                            status = "CONNECTED",
+                            firstName = firstName,
+                            lastName = lastName,
+                            username = username,
+                            userId = userId,
+                            bridgePort = port
+                        )
+                    )
                 }
 
-                // Auto-sync initial channels
+                logEvent("SUCCESS", "Authentification Telegram réussie : $firstName (@$username - ID: $userId)")
+
+                // Synchronisation des vrais canaux réels
                 syncChannels(cleanPhone, port)
 
                 return@withContext TelegramAuthResult(
                     success = true,
-                    message = "Connexion réussie avec succès !",
+                    message = "Connexion Telegram réussie !",
                     userFirstName = firstName,
                     username = username,
                     userId = userId
@@ -213,111 +249,170 @@ class TelegramService(
                     return@withContext TelegramAuthResult(
                         success = false,
                         requiresPassword = true,
-                        message = "Double Authentification (2FA) requise. Entrez votre mot de passe."
+                        message = "Double Authentification (2FA) requise. Veuillez saisir votre mot de passe Telegram."
                     )
                 }
             }
             val err = try { JSONObject(responseText).optString("error", responseText) } catch (e: Exception) { responseText }
-            return@withContext TelegramAuthResult(success = false, message = "Erreur: $err")
+            logEvent("ERROR", "Échec validation code: $err")
+            return@withContext TelegramAuthResult(success = false, message = "Erreur Telegram : $err")
         } catch (e: Exception) {
-            // Local fallback simulation if user connects in app demo/simulation mode
-            val current = database.telegramDao().getAccountById(cleanPhone)
-            val firstName = "E-com Admin (${cleanPhone.takeLast(4)})"
-            val username = "admin_${cleanPhone.takeLast(4)}"
-            val userId = 849204102L
-
-            if (current != null) {
-                database.telegramDao().markAccountConnected(
-                    id = current.id,
-                    firstName = firstName,
-                    lastName = "",
-                    username = username,
-                    userId = userId
-                )
-            } else {
-                database.telegramDao().insertAccount(
-                    TelegramAccountEntity(
-                        id = cleanPhone,
-                        phoneNumber = cleanPhone,
-                        status = "CONNECTED",
-                        firstName = firstName,
-                        username = username,
-                        userId = userId,
-                        bridgePort = port
-                    )
-                )
-            }
-
-            // Seed default e-commerce channels to monitor
-            seedDefaultChannels(cleanPhone)
-
+            Log.e(TAG, "Erreur connexion verifyCodeAndSignIn: ${e.message}")
             return@withContext TelegramAuthResult(
-                success = true,
-                message = "Compte Telegram connecté avec succès !",
-                userFirstName = firstName,
-                username = username,
-                userId = userId
+                success = false,
+                message = "Échec de communication avec le bridge Termux (Port $port) : ${e.message}"
             )
         }
     }
 
+    /**
+     * Appelle GET /telegram/channels pour récupérer les vrais canaux du compte connecté.
+     * Ne génère JAMAIS de données factices. Si le compte n'a pas de canaux, la liste reste vide.
+     */
     suspend fun syncChannels(accountId: String, port: Int = defaultPort): List<TelegramChannelEntity> = withContext(Dispatchers.IO) {
         val channels = mutableListOf<TelegramChannelEntity>()
         try {
-            val url = URL("http://127.0.0.1:$port/channels")
+            val url = URL("http://127.0.0.1:$port/telegram/channels")
             val conn = (url.openConnection() as HttpURLConnection).apply {
-                connectTimeout = 4000
-                readTimeout = 6000
+                connectTimeout = 6000
+                readTimeout = 12000
                 requestMethod = "GET"
             }
             if (conn.responseCode == 200) {
                 val text = conn.inputStream.bufferedReader().use { it.readText() }
                 val json = JSONObject(text)
                 val arr = json.optJSONArray("channels") ?: JSONArray()
+
                 for (i in 0 until arr.length()) {
                     val obj = arr.getJSONObject(i)
+                    val chId = obj.getLong("id")
                     channels.add(
                         TelegramChannelEntity(
-                            id = "${accountId}_${obj.getLong("id")}",
+                            id = "${accountId}_$chId",
                             accountId = accountId,
-                            channelId = obj.getLong("id"),
+                            channelId = chId,
                             title = obj.getString("title"),
                             username = obj.optString("username", ""),
                             isChannel = obj.optBoolean("is_channel", true),
                             isGroup = obj.optBoolean("is_group", false),
                             memberCount = obj.optInt("member_count", 0),
                             unreadCount = obj.optInt("unread_count", 0),
-                            isMonitored = true
+                            isMonitored = obj.optBoolean("is_monitored", false)
                         )
                     )
                 }
+
                 if (channels.isNotEmpty()) {
                     database.telegramDao().insertChannels(channels)
+                    logEvent("CHANNELS", "${channels.size} canaux réels synchronisés depuis votre compte Telegram.")
+                } else {
+                    logEvent("CHANNELS", "0 canal détecté sur ce compte Telegram.")
                 }
+            } else {
+                logEvent("ERROR", "Erreur HTTP ${conn.responseCode} lors de la synchronisation des canaux.")
             }
         } catch (e: Exception) {
-            Log.w(TAG, "Erreur syncChannels via HTTP, conservation des canaux locaux")
+            Log.w(TAG, "Erreur syncChannels via HTTP: ${e.message}")
+            logEvent("WARN", "Synchronisation des canaux impossible (Bridge hors-ligne)")
         }
 
-        if (channels.isEmpty()) {
-            seedDefaultChannels(accountId)
-        }
+        // Aucune génération de faux canaux : le retour est strictement la liste réelle !
         channels
     }
 
+    /**
+     * Active ou désactive la surveillance en temps réel d'un canal dans le script Telethon.
+     */
+    suspend fun toggleChannelWatch(channelId: Long, active: Boolean, port: Int = defaultPort): Boolean = withContext(Dispatchers.IO) {
+        var bridgeSuccess = false
+        try {
+            val url = URL("http://127.0.0.1:$port/telegram/channels/$channelId/watch")
+            val conn = (url.openConnection() as HttpURLConnection).apply {
+                connectTimeout = 3000
+                readTimeout = 5000
+                requestMethod = "POST"
+                setRequestProperty("Content-Type", "application/json")
+                doOutput = true
+            }
+            val payload = JSONObject().apply { put("active", active) }
+            OutputStreamWriter(conn.outputStream).use { it.write(payload.toString()) }
+            bridgeSuccess = (conn.responseCode in 200..299)
+        } catch (e: Exception) {
+            Log.w(TAG, "Impossible de notifier le bridge du changement d'écoute: ${e.message}")
+        }
+
+        // Mise à jour de la base de données Room locale
+        database.telegramDao().updateChannelMonitoringByLongId(channelId, active)
+        logEvent("WATCH", "Surveillance canal $channelId : ${if (active) "ACTIVÉE" else "DÉSACTIVÉE"}")
+        bridgeSuccess
+    }
+
+    /**
+     * Récupère les derniers messages réels d'un canal via Telethon.
+     */
+    suspend fun fetchChannelRecentMessages(
+        channelId: Long,
+        channelTitle: String = "Canal Telegram",
+        port: Int = defaultPort
+    ): List<TelegramMessageEntity> = withContext(Dispatchers.IO) {
+        val messages = mutableListOf<TelegramMessageEntity>()
+        try {
+            val url = URL("http://127.0.0.1:$port/telegram/channels/$channelId/messages")
+            val conn = (url.openConnection() as HttpURLConnection).apply {
+                connectTimeout = 6000
+                readTimeout = 12000
+                requestMethod = "GET"
+            }
+            if (conn.responseCode == 200) {
+                val text = conn.inputStream.bufferedReader().use { it.readText() }
+                val json = JSONObject(text)
+                val arr = json.optJSONArray("messages") ?: JSONArray()
+                for (i in 0 until arr.length()) {
+                    val obj = arr.getJSONObject(i)
+                    val msgId = obj.getLong("id")
+                    val msgEntity = TelegramMessageEntity(
+                        id = "${channelId}_$msgId",
+                        channelId = channelId,
+                        channelTitle = channelTitle,
+                        channelUsername = "",
+                        messageId = msgId,
+                        senderId = obj.optLong("sender_id", 0L),
+                        senderName = obj.optString("sender_name", "Auteur"),
+                        text = obj.optString("text", ""),
+                        mediaType = obj.optString("media_type", "none"),
+                        mediaUrl = null,
+                        timestamp = obj.optLong("timestamp", System.currentTimeMillis()),
+                        rawJson = obj.toString()
+                    )
+                    messages.add(msgEntity)
+                }
+                if (messages.isNotEmpty()) {
+                    database.telegramDao().insertMessages(messages)
+                }
+            }
+        } catch (e: Exception) {
+            Log.w(TAG, "Erreur fetchChannelRecentMessages: ${e.message}")
+        }
+        messages
+    }
+
+    /**
+     * Déconnecte le compte Telegram et ferme la session Telethon.
+     */
     suspend fun disconnectAccount(accountId: String, port: Int = defaultPort): Boolean = withContext(Dispatchers.IO) {
         try {
-            val url = URL("http://127.0.0.1:$port/disconnect")
+            val url = URL("http://127.0.0.1:$port/telegram/disconnect")
             val conn = (url.openConnection() as HttpURLConnection).apply {
-                connectTimeout = 2000
-                readTimeout = 3000
+                connectTimeout = 3000
+                readTimeout = 4000
                 requestMethod = "POST"
             }
             conn.responseCode
         } catch (e: Exception) {
-            // Ignore
+            // Ignorer si bridge injoignable
         }
         database.telegramDao().updateAccountStatus(accountId, "DISCONNECTED")
+        logEvent("AUTH", "Compte $accountId déconnecté.")
         true
     }
 
@@ -328,7 +423,6 @@ class TelegramService(
         status: String,
         port: Int
     ) {
-        val existing = database.telegramDao().getAccountById(phone)
         val entity = TelegramAccountEntity(
             id = phone,
             phoneNumber = phone,
@@ -339,51 +433,6 @@ class TelegramService(
             lastSyncTimestamp = System.currentTimeMillis()
         )
         database.telegramDao().insertAccount(entity)
-    }
-
-    private suspend fun seedDefaultChannels(accountId: String) {
-        val demoChannels = listOf(
-            TelegramChannelEntity(
-                id = "${accountId}_ch_fournisseurs",
-                accountId = accountId,
-                channelId = -1001928374821L,
-                title = "📦 Fournisseurs Drop & Gros (Paris/Dubai)",
-                username = "grossistes_dropship_officiel",
-                isChannel = true,
-                isGroup = false,
-                memberCount = 12450,
-                isMonitored = true,
-                unreadCount = 8,
-                lastMessageText = "Arrivage montres automatiques cuir & sacs cuir luxe à prix grossiste..."
-            ),
-            TelegramChannelEntity(
-                id = "${accountId}_ch_nouveautes",
-                accountId = accountId,
-                channelId = -1001839201948L,
-                title = "🔥 Nouveautés Produits Tendances 2026",
-                username = "trends_ecom_vip",
-                isChannel = true,
-                isGroup = false,
-                memberCount = 8320,
-                isMonitored = true,
-                unreadCount = 14,
-                lastMessageText = "Pack 5x Projecteurs LED 4K disponibles en stock avec photos HD"
-            ),
-            TelegramChannelEntity(
-                id = "${accountId}_ch_destock",
-                accountId = accountId,
-                channelId = -1001748291039L,
-                title = "🏷️ Déstockage Direct Import",
-                username = "destock_france_direct",
-                isChannel = true,
-                isGroup = false,
-                memberCount = 5600,
-                isMonitored = true,
-                unreadCount = 3,
-                lastMessageText = "Écouteurs sans fil ANC étanches avec étui chargeur rapide"
-            )
-        )
-        database.telegramDao().insertChannels(demoChannels)
     }
 
     fun openTermux(context: Context) {
@@ -399,7 +448,6 @@ class TelegramService(
                     return
                 }
 
-                // Try checking package info directly if launchIntent was null
                 pm.getPackageInfo(pkg, 0)
                 val explicitIntent = Intent(Intent.ACTION_MAIN).apply {
                     setClassName(pkg, "com.termux.app.TermuxActivity")
@@ -408,11 +456,10 @@ class TelegramService(
                 context.startActivity(explicitIntent)
                 return
             } catch (_: Exception) {
-                // Try next candidate
+                // Essayer le candidat suivant
             }
         }
 
-        // Fallback to web download only if Termux is genuinely not installed
         try {
             val storeIntent = Intent(Intent.ACTION_VIEW, Uri.parse("https://f-droid.org/packages/com.termux/")).apply {
                 addFlags(Intent.FLAG_ACTIVITY_NEW_TASK)
@@ -451,56 +498,5 @@ class TelegramService(
 
     suspend fun clearLogs() {
         database.telegramDao().clearLogs()
-    }
-
-    suspend fun simulateIncomingSupplierMessage(
-        channelTitle: String? = null,
-        customText: String? = null
-    ): TelegramMessageEntity = withContext(Dispatchers.IO) {
-        val channels = database.telegramDao().getChannelsByAccount("default")
-        val sampleSuppliers = listOf(
-            Triple(-1001928374821L, "📦 Fournisseurs Drop & Gros (Paris/Dubai)", "grossistes_dropship_officiel"),
-            Triple(-1001839201948L, "🔥 Nouveautés Produits Tendances 2026", "trends_ecom_vip"),
-            Triple(-1001748291039L, "🏷️ Déstockage Direct Import", "destock_france_direct")
-        )
-        val selected = sampleSuppliers.random()
-        val chId = selected.first
-        val title = channelTitle ?: selected.second
-        val username = selected.third
-
-        val sampleTexts = listOf(
-            "🔥 ARRIVAGE EXCLUSIF : Montre Connectée Ultra Series 9 avec 3 bracelets silicone & métal. Prix grossiste : 14.50€/u (min 10 pcs). Prix revente conseillé : 49.90€. Stock disponible Paris : 350 unités.",
-            "🎧 NOUVEAU : Écouteurs Pro Sans Fil avec réduction active de bruit (ANC 35dB), boîtier transparent cyberpunk. Prix direct usine : 8.20€/u. PVC : 29.90€. Expédition 24h.",
-            "💡 FLASH STOCK : Mini Vidéoprojecteur Portable 4K Android 11 Wi-Fi 6. Rotation 180°. Prix achat : 28.00€/u. PVC : 89.00€. Idéal TikTok Shop / Dropshipping.",
-            "⚡ TOP VENTE : Valise de voyage cabine rigide polycarbonate ultra-légère avec serrure TSA intégrée. Achat : 22.50€ | Revente : 69.90€. Entrepôt Lyon.",
-            "💄 PACK BEAUTÉ : Brosse soufflante 5-en-1 avec accessoires céramique et technologie ionique. Prix fournisseur : 11.90€. Revente : 39.90€."
-        )
-
-        val text = customText ?: sampleTexts.random()
-        val msgId = System.currentTimeMillis()
-        val entityId = "${chId}_$msgId"
-
-        val entity = TelegramMessageEntity(
-            id = entityId,
-            channelId = chId,
-            channelTitle = title,
-            channelUsername = username,
-            messageId = msgId,
-            senderId = 99283711L,
-            senderName = "Fournisseur Officiel",
-            text = text,
-            mediaType = "photo",
-            mediaUrl = "https://picsum.photos/400/300?random=$msgId",
-            timestamp = msgId
-        )
-
-        // Save message & update channel
-        database.telegramDao().insertMessage(entity)
-        database.telegramDao().updateChannelLastMessage(chId, text, msgId)
-
-        // Log
-        logEvent("INCOMING", "[$title] Arrivage fournisseur reçu: ${text.take(65)}...")
-
-        entity
     }
 }

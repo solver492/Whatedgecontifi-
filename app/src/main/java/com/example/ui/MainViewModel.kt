@@ -74,14 +74,26 @@ class MainViewModel(application: Application) : AndroidViewModel(application) {
     val bridgePort = bridgeServer.serverPort
     val bridgeLogs = bridgeServer.logs
 
-    val telegramService = TelegramService(application, database)
+    val telegramService = TelegramService(database)
     val telegramAccounts: StateFlow<List<TelegramAccountEntity>> = database.telegramDao()
         .getAllAccounts()
         .stateIn(viewModelScope, SharingStarted.WhileSubscribed(5000), emptyList())
 
     val telegramChannels: StateFlow<List<TelegramChannelEntity>> = database.telegramDao()
-        .getAllMonitoredChannels()
+        .getAllChannels()
         .stateIn(viewModelScope, SharingStarted.WhileSubscribed(5000), emptyList())
+
+    private val _hiddenChannelIds = MutableStateFlow<Set<Long>>(emptySet())
+    val hiddenChannelIds: StateFlow<Set<Long>> = _hiddenChannelIds.asStateFlow()
+
+    fun toggleChannelVisibility(channelId: Long) {
+        val current = _hiddenChannelIds.value
+        _hiddenChannelIds.value = if (current.contains(channelId)) {
+            current - channelId
+        } else {
+            current + channelId
+        }
+    }
 
     val telegramMessages: StateFlow<List<TelegramMessageEntity>> = database.telegramDao()
         .getAllMessages()
@@ -610,12 +622,12 @@ class MainViewModel(application: Application) : AndroidViewModel(application) {
     }
 
     // =========================================================================
-    // --- TELEGRAM TELETHON SUITE (Phase 1) ---
+    // --- TELEGRAM TELETHON SUITE (Architecture Réelle Zéro Simulation) ---
     // =========================================================================
 
     fun refreshTelegramStatus() {
         viewModelScope.launch {
-            val status = telegramService.checkStatus()
+            val status = telegramService.checkBridgeStatus()
             _telegramStatus.value = status
             _isTelegramBridgeOnline.value = status.isOnline
         }
@@ -651,9 +663,22 @@ class MainViewModel(application: Application) : AndroidViewModel(application) {
         }
     }
 
-    fun toggleChannelMonitoring(channelId: String, isMonitored: Boolean) {
-        viewModelScope.launch(Dispatchers.IO) {
-            database.telegramDao().updateChannelMonitoring(channelId, isMonitored)
+    fun toggleChannelMonitoring(channelId: Long, isMonitored: Boolean) {
+        viewModelScope.launch {
+            telegramService.toggleChannelWatch(channelId, isMonitored)
+        }
+    }
+
+    fun fetchChannelRecentMessages(
+        channelId: Long,
+        channelTitle: String,
+        onResult: (List<TelegramMessageEntity>) -> Unit
+    ) {
+        viewModelScope.launch {
+            _isTelegramLoading.value = true
+            val msgs = telegramService.fetchChannelRecentMessages(channelId, channelTitle)
+            _isTelegramLoading.value = false
+            onResult(msgs)
         }
     }
 
@@ -676,12 +701,6 @@ class MainViewModel(application: Application) : AndroidViewModel(application) {
 
     fun openTermuxForTelegram(context: android.content.Context) {
         telegramService.openTermux(context)
-    }
-
-    fun simulateIncomingTelegramMessage(channelTitle: String? = null, customText: String? = null) {
-        viewModelScope.launch {
-            telegramService.simulateIncomingSupplierMessage(channelTitle, customText)
-        }
     }
 
     fun deleteTelegramMessage(id: String) {

@@ -6,13 +6,14 @@ object TelegramBridgeScript {
 
     const val INSTALL_COMMAND = "pkg update -y && pkg install python -y && pip install telethon aiohttp"
 
-    const val LAUNCH_COMMAND = "curl -sSL -o telegram_bridge.py http://127.0.0.1:8081/telegram_bridge.py && python telegram_bridge.py"
+    const val LAUNCH_COMMAND = "curl -sSL -o telegram-bridge.py http://127.0.0.1:8081/telegram-bridge.py && python telegram-bridge.py"
 
-    const val COMPLETE_TERMUX_COMMAND = "pkg update -y && pkg install python -y && pip install telethon aiohttp && curl -sSL -o telegram_bridge.py http://127.0.0.1:8081/telegram_bridge.py && python telegram_bridge.py"
+    const val COMPLETE_TERMUX_COMMAND = "pkg update -y && pkg install python -y && pip install telethon aiohttp && curl -sSL -o telegram-bridge.py http://127.0.0.1:8081/telegram-bridge.py && python telegram-bridge.py"
 
     val PYTHON_BRIDGE_SCRIPT = """# =========================================================================
-# AI Edge - Telegram Telethon Bridge for Termux / Local Python Server
+# AI Edge - Telegram Telethon MTProto Real Bridge for Termux / Python Server
 # Port d'écoute HTTP : 8088 | Relais vers Android : 8081 / 8080 / 8082
+# Architecture réelle sans aucune simulation de données
 # =========================================================================
 
 import asyncio
@@ -23,6 +24,7 @@ import aiohttp
 from aiohttp import web
 from telethon import TelegramClient, events
 from telethon.tl.types import Channel, Chat
+from telethon.errors import SessionPasswordNeededError
 
 PORT = int(os.environ.get('PORT', 8088))
 SESSION_NAME = os.environ.get('TG_SESSION', 'telethon_session')
@@ -35,8 +37,7 @@ listener_attached = False
 app_state = {
     "api_id": None,
     "api_hash": None,
-    "phone": None,
-    "status": "DISCONNECTED"
+    "phone": None
 }
 
 async def forward_to_android(endpoint, payload):
@@ -69,11 +70,11 @@ def attach_telethon_listener(tg):
             chat = await event.get_chat()
             chat_id = event.chat_id
             
-            # Filtre de surveillance si spécifié
+            # Écoute uniquement les canaux sous surveillance si une liste est active
             if monitored_channels and chat_id not in monitored_channels:
                 return
 
-            title = getattr(chat, 'title', '') or getattr(chat, 'first_name', 'Fournisseur Telegram')
+            title = getattr(chat, 'title', '') or getattr(chat, 'first_name', 'Canal Telegram')
             username = getattr(chat, 'username', '') or ''
             text = event.raw_text or ''
             
@@ -98,19 +99,22 @@ def attach_telethon_listener(tg):
                 "timestamp": int(event.date.timestamp() * 1000)
             }
 
-            await log_to_android("INCOMING", f"Message reçu sur [{title}]: {text[:80]}...")
+            await log_to_android("INCOMING", f"Message réel reçu sur [{title}]: {text[:80]}")
             await forward_to_android("/api/telegram/message", payload)
         except Exception as e:
             await log_to_android("ERROR", f"Erreur traitement NewMessage: {str(e)}")
 
     listener_attached = True
-    print("✅ Écouteur de messages Telethon attaché avec succès.")
+    print("✅ Écouteur Telethon NewMessage attaché aux flux réels.")
 
 async def get_client(api_id, api_hash):
     global client
-    if client is None or client.api_id != api_id:
+    if client is None or getattr(client, 'api_id', None) != int(api_id):
         if client:
-            await client.disconnect()
+            try:
+                await client.disconnect()
+            except Exception:
+                pass
         client = TelegramClient(SESSION_NAME, int(api_id), str(api_hash))
         await client.connect()
         attach_telethon_listener(client)
@@ -136,14 +140,14 @@ async def handle_status(request):
                     "phone": me.phone or ""
                 }
                 attach_telethon_listener(client)
-        except Exception as e:
+        except Exception:
             is_auth = False
             
     return web.json_response({
         "online": True,
         "port": PORT,
         "authenticated": is_auth,
-        "status": "CONNECTED" if is_auth else "READY",
+        "status": "CONNECTED" if is_auth else "DISCONNECTED",
         "monitored_channels_count": len(monitored_channels),
         "user": user_data
     })
@@ -169,10 +173,11 @@ async def handle_send_code(request):
             "success": True,
             "phone": phone,
             "phone_code_hash": result.phone_code_hash,
-            "message": "Code de vérification envoyé sur Telegram / SMS"
+            "message": "Code de vérification envoyé sur votre compte Telegram officiel"
         })
     except Exception as e:
-        return web.json_response({"success": False, "error": str(e)}, status=500)
+        # Erreur réelle renvoyée par Telegram / Telethon (ex: PhoneNumberInvalidError, ApiIdInvalidError)
+        return web.json_response({"success": False, "error": str(e)}, status=400)
 
 async def handle_sign_in(request):
     try:
@@ -180,29 +185,33 @@ async def handle_sign_in(request):
         phone = data.get("phone") or app_state.get("phone")
         code = data.get("code")
         phone_code_hash = data.get("phone_code_hash") or phone_code_hash_cache.get(phone, "")
-        password = data.get("password") # Pour 2FA si activé
+        password = data.get("password")
         
         if not phone or not code:
             return web.json_response({"success": False, "error": "phone et code requis"}, status=400)
             
+        if not app_state.get("api_id") or not app_state.get("api_hash"):
+            return web.json_response({"success": False, "error": "Session non initialisée. Veuillez recommencer l'étape précédente."}, status=400)
+
         tg = await get_client(app_state["api_id"], app_state["api_hash"])
         
         try:
-            user = await tg.sign_in(phone=phone, code=code, phone_code_hash=phone_code_hash)
-        except Exception as auth_err:
-            if "Two-steps verification" in str(auth_err) or "SessionPasswordNeeded" in str(auth_err):
-                if password:
-                    user = await tg.sign_in(password=password)
-                else:
-                    return web.json_response({
-                        "success": False, 
-                        "requires_password": True,
-                        "error": "Mot de passe 2FA (Double Authentification) requis"
-                    }, status=401)
+            if phone_code_hash:
+                await tg.sign_in(phone=phone, code=code, phone_code_hash=phone_code_hash)
             else:
-                raise auth_err
+                await tg.sign_in(phone=phone, code=code)
+        except SessionPasswordNeededError:
+            if password:
+                await tg.sign_in(password=password)
+            else:
+                return web.json_response({
+                    "success": False, 
+                    "requires_password": True,
+                    "error": "Mot de passe 2FA (Double Authentification) requis"
+                }, status=401)
                 
         me = await tg.get_me()
+        attach_telethon_listener(tg)
         return web.json_response({
             "success": True,
             "user": {
@@ -214,13 +223,13 @@ async def handle_sign_in(request):
             }
         })
     except Exception as e:
-        return web.json_response({"success": False, "error": str(e)}, status=500)
+        return web.json_response({"success": False, "error": str(e)}, status=400)
 
 async def handle_get_channels(request):
     try:
         global client
         if not client or not client.is_connected() or not await client.is_user_authorized():
-            return web.json_response({"success": False, "error": "Non authentifié sur Telegram"}, status=401)
+            return web.json_response({"success": False, "error": "Compte non authentifié sur Telegram"}, status=401)
             
         dialogs = []
         async for dialog in client.iter_dialogs():
@@ -234,12 +243,68 @@ async def handle_get_channels(request):
                     "is_channel": dialog.is_channel,
                     "is_group": dialog.is_group,
                     "unread_count": dialog.unread_count,
-                    "member_count": member_count
+                    "member_count": member_count,
+                    "is_monitored": dialog.id in monitored_channels
                 })
                 
         return web.json_response({
             "success": True,
             "channels": dialogs
+        })
+    except Exception as e:
+        return web.json_response({"success": False, "error": str(e)}, status=500)
+
+async def handle_watch_channel(request):
+    try:
+        channel_id = int(request.match_info.get('id', 0))
+        data = await request.json() if request.can_read_body else {}
+        active = data.get("active", True)
+        global monitored_channels
+        if active:
+            monitored_channels.add(channel_id)
+        else:
+            monitored_channels.discard(channel_id)
+        await log_to_android("INFO", f"Surveillance canal {channel_id}: {'ACTIVÉE' if active else 'DÉSACTIVÉE'}")
+        return web.json_response({
+            "success": True,
+            "channel_id": channel_id,
+            "active": active,
+            "monitored_count": len(monitored_channels)
+        })
+    except Exception as e:
+        return web.json_response({"success": False, "error": str(e)}, status=500)
+
+async def handle_get_channel_messages(request):
+    try:
+        global client
+        if not client or not client.is_connected() or not await client.is_user_authorized():
+            return web.json_response({"success": False, "error": "Non authentifié sur Telegram"}, status=401)
+            
+        channel_id = int(request.match_info.get('id', 0))
+        messages = []
+        async for msg in client.iter_messages(channel_id, limit=25):
+            media_type = "none"
+            if msg.photo:
+                media_type = "photo"
+            elif msg.document:
+                media_type = "document"
+                
+            sender = await msg.get_sender()
+            sender_name = getattr(sender, 'first_name', '') or "Auteur"
+
+            messages.append({
+                "id": msg.id,
+                "text": msg.raw_text or "",
+                "timestamp": int(msg.date.timestamp() * 1000) if msg.date else 0,
+                "media_type": media_type,
+                "sender_id": msg.sender_id or 0,
+                "sender_name": sender_name
+            })
+            
+        return web.json_response({
+            "success": True,
+            "channel_id": channel_id,
+            "messages": messages
         })
     except Exception as e:
         return web.json_response({"success": False, "error": str(e)}, status=500)
@@ -251,53 +316,33 @@ async def handle_disconnect(request):
             await client.log_out()
             await client.disconnect()
             client = None
-        return web.json_response({"success": True, "message": "Déconnecté avec succès"})
-    except Exception as e:
-        return web.json_response({"success": False, "error": str(e)}, status=500)
-
-async def handle_monitor_channels(request):
-    try:
-        data = await request.json()
-        channel_ids = data.get("channel_ids", [])
-        global monitored_channels
-        monitored_channels = set(int(c) for c in channel_ids)
-        return web.json_response({
-            "success": True,
-            "monitored_count": len(monitored_channels)
-        })
-    except Exception as e:
-        return web.json_response({"success": False, "error": str(e)}, status=500)
-
-async def handle_simulate_incoming(request):
-    try:
-        data = await request.json() if request.can_read_body else {}
-        fake_msg = {
-            "channel_id": data.get("channel_id", -1001928374821),
-            "channel_title": data.get("channel_title", "📦 Fournisseurs Drop & Gros (Paris/Dubai)"),
-            "channel_username": data.get("channel_username", "grossistes_dropship_officiel"),
-            "message_id": int(asyncio.get_event_loop().time() * 1000),
-            "sender_id": 99887766,
-            "sender_name": "Grossiste Dubai",
-            "text": data.get("text", "🔥 Arrivage Immédiat : Montre connectée AMOLED IP68 étanche avec 3 bracelets. Prix d'achat: 14.50€ | Prix conseillé: 49.90€. Stock Paris: 250 pièces dispo."),
-            "media_type": data.get("media_type", "photo"),
-            "timestamp": int(asyncio.get_event_loop().time() * 1000)
-        }
-        await log_to_android("INCOMING", f"[Simulation] Message arrivage: {fake_msg['text'][:60]}...")
-        ok = await forward_to_android("/api/telegram/message", fake_msg)
-        return web.json_response({"success": ok, "message": fake_msg})
+        return web.json_response({"success": True, "message": "Déconnecté de Telegram avec succès"})
     except Exception as e:
         return web.json_response({"success": False, "error": str(e)}, status=500)
 
 def init_app():
     app = web.Application()
-    app.router.add_get('/', lambda r: web.Response(text="Telegram Telethon Bridge Active"))
+    app.router.add_get('/', lambda r: web.Response(text="AI Edge Telegram Telethon Bridge Active"))
+    
+    # Routes standardisées selon spec
+    app.router.add_get('/telegram/status', handle_status)
     app.router.add_get('/status', handle_status)
+    
+    app.router.add_post('/telegram/auth/start', handle_send_code)
     app.router.add_post('/auth/send-code', handle_send_code)
+    
+    app.router.add_post('/telegram/auth/confirm', handle_sign_in)
     app.router.add_post('/auth/sign-in', handle_sign_in)
+    
+    app.router.add_get('/telegram/channels', handle_get_channels)
     app.router.add_get('/channels', handle_get_channels)
-    app.router.add_post('/channels/monitor', handle_monitor_channels)
-    app.router.add_post('/simulate/incoming', handle_simulate_incoming)
+    
+    app.router.add_post('/telegram/channels/{id}/watch', handle_watch_channel)
+    app.router.add_get('/telegram/channels/{id}/messages', handle_get_channel_messages)
+    
+    app.router.add_post('/telegram/disconnect', handle_disconnect)
     app.router.add_post('/disconnect', handle_disconnect)
+    
     return app
 
 if __name__ == '__main__':

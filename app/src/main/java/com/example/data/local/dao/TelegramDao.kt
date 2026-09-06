@@ -39,6 +39,9 @@ interface TelegramDao {
     suspend fun deleteAccount(id: String)
 
     // Channels
+    @Query("SELECT * FROM telegram_channels ORDER BY isMonitored DESC, title ASC")
+    fun getAllChannels(): Flow<List<TelegramChannelEntity>>
+
     @Query("SELECT * FROM telegram_channels WHERE accountId = :accountId ORDER BY title ASC")
     fun getChannelsByAccount(accountId: String): Flow<List<TelegramChannelEntity>>
 
@@ -56,6 +59,9 @@ interface TelegramDao {
 
     @Query("UPDATE telegram_channels SET isMonitored = :isMonitored WHERE id = :channelId")
     suspend fun updateChannelMonitoring(channelId: String, isMonitored: Boolean)
+
+    @Query("UPDATE telegram_channels SET isMonitored = :isMonitored WHERE channelId = :channelId")
+    suspend fun updateChannelMonitoringByLongId(channelId: Long, isMonitored: Boolean)
 
     @Query("UPDATE telegram_channels SET lastMessageText = :text, lastMessageTimestamp = :timestamp, unreadCount = unreadCount + 1 WHERE channelId = :channelId")
     suspend fun updateChannelLastMessage(channelId: Long, text: String, timestamp: Long = System.currentTimeMillis())

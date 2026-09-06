@@ -332,8 +332,8 @@ class LocalNodeBridgeServer(
                     }
                 }
 
-                // 5. GET /telegram_bridge.py (Serve Python Telethon Bridge script directly to Termux)
-                (path.startsWith("/telegram_bridge.py") || path.startsWith("/api/telegram_bridge.py")) && method.equals("GET", ignoreCase = true) -> {
+                // 5. GET /telegram_bridge.py or /telegram-bridge.py (Serve Python Telethon Bridge script directly to Termux)
+                (path.startsWith("/telegram_bridge.py") || path.startsWith("/telegram-bridge.py") || path.startsWith("/api/telegram_bridge.py") || path.startsWith("/api/telegram-bridge.py")) && method.equals("GET", ignoreCase = true) -> {
                     sendHttpResponse(output, 200, "OK", "text/x-python; charset=utf-8", TelegramBridgeScript.PYTHON_BRIDGE_SCRIPT)
                 }
 
