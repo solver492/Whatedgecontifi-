@@ -71,6 +71,7 @@ fun AffiliatesScreen(
     modifier: Modifier = Modifier
 ) {
     val affiliates by viewModel.commerceAffiliates.collectAsState()
+    val appSettings by viewModel.appSettings.collectAsState()
     var showAddDialog by remember { mutableStateOf(false) }
     var affiliateToEdit by remember { mutableStateOf<AffiliateEntity?>(null) }
 
@@ -189,7 +190,7 @@ fun AffiliatesScreen(
                                 ) {
                                     Column(modifier = Modifier.padding(8.dp)) {
                                         Text("Commissions Gagnées", color = WhatsAppGreen, fontSize = 10.sp)
-                                        Text("%.0f %s".format(aff.totalEarnings, aff.currency), color = WhatsAppGreen, fontSize = 13.sp, fontWeight = FontWeight.Bold)
+                                        Text(viewModel.formatPrice(aff.totalEarnings, aff.currency), color = WhatsAppGreen, fontSize = 13.sp, fontWeight = FontWeight.Bold)
                                     }
                                 }
 
@@ -256,7 +257,7 @@ fun AffiliatesScreen(
         var name by remember { mutableStateOf(initial?.fullName ?: "") }
         var refCode by remember { mutableStateOf(initial?.referralCode ?: "") }
         var rateStr by remember { mutableStateOf(initial?.commissionRatePercent?.toString() ?: "10.0") }
-        var phone by remember { mutableStateOf(initial?.phone ?: "") }
+        var phone by remember { mutableStateOf(initial?.phone ?: "${appSettings.defaultCountryCode} ") }
 
         AlertDialog(
             onDismissRequest = {

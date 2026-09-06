@@ -41,6 +41,7 @@ import androidx.compose.material.icons.filled.Psychology
 import androidx.compose.material.icons.filled.ReceiptLong
 import androidx.compose.material.icons.filled.RequestQuote
 import androidx.compose.material.icons.filled.Send
+import androidx.compose.material.icons.filled.Settings
 import androidx.compose.material.icons.filled.SmartToy
 import androidx.compose.material.icons.filled.Store
 import androidx.compose.material.icons.filled.SwapHoriz
@@ -88,6 +89,7 @@ import com.example.ui.screens.McpAndSimulatorScreen
 import com.example.ui.screens.OrdersScreen
 import com.example.ui.screens.PriceContactsScreen
 import com.example.ui.screens.ProductsScreen
+import com.example.ui.screens.SettingsScreen
 import com.example.ui.screens.ShippingAgenciesScreen
 import com.example.ui.screens.SuppliersScreen
 import com.example.ui.screens.TelegramScreen
@@ -150,6 +152,7 @@ fun MainAppScreen(viewModel: MainViewModel) {
     val recentMessages by viewModel.recentMessages.collectAsState()
     val webhooks by viewModel.webhooks.collectAsState()
     val quantizationStatus by viewModel.quantizationStatus.collectAsState()
+    val appSettings by viewModel.appSettings.collectAsState()
 
     val connectedInstancesCount = instances.count { it.status == "CONNECTED" }
 
@@ -166,12 +169,22 @@ fun MainAppScreen(viewModel: MainViewModel) {
                                 modifier = Modifier
                                     .size(40.dp)
                                     .clip(CircleShape)
-                                    .background(if (activeNavSet == 0) ElegantPurpleAccent else Color(0xFF2AABEE)),
+                                    .background(
+                                        when (activeNavSet) {
+                                            0 -> ElegantPurpleAccent
+                                            1 -> Color(0xFF2AABEE)
+                                            else -> Color(0xFFFFA000)
+                                        }
+                                    ),
                                 contentAlignment = Alignment.Center
                             ) {
                                 Icon(
-                                    imageVector = if (activeNavSet == 0) Icons.Default.Psychology else Icons.Default.Store,
-                                    contentDescription = "Agent Core",
+                                    imageVector = when (activeNavSet) {
+                                        0 -> Icons.Default.Psychology
+                                        1 -> Icons.Default.Store
+                                        else -> Icons.Default.Settings
+                                    },
+                                    contentDescription = "Module Header",
                                     tint = ElegantPurpleOnAccent,
                                     modifier = Modifier.size(24.dp)
                                 )
@@ -179,17 +192,29 @@ fun MainAppScreen(viewModel: MainViewModel) {
                             Spacer(modifier = Modifier.width(12.dp))
                             Column {
                                 Text(
-                                    text = if (activeNavSet == 0) "Agent Core" else "Commerce & Telegram",
+                                    text = when (activeNavSet) {
+                                        0 -> "Agent Core"
+                                        1 -> "Commerce & Telegram"
+                                        else -> "Paramètres & Réglages"
+                                    },
                                     style = MaterialTheme.typography.titleMedium,
                                     fontWeight = FontWeight.SemiBold,
                                     color = ElegantTextPrimary
                                 )
                                 Text(
-                                    text = if (activeNavSet == 0) "AI EDGE QUANTIZER" else "TELETHON & BUSINESS ENGINE",
+                                    text = when (activeNavSet) {
+                                        0 -> "AI EDGE QUANTIZER"
+                                        1 -> "TELETHON & BUSINESS ENGINE"
+                                        else -> "${appSettings.currency} (${appSettings.currencySymbol}) • ${appSettings.defaultCountryCode} ${appSettings.countryName.uppercase()}"
+                                    },
                                     style = MaterialTheme.typography.labelSmall,
                                     fontWeight = FontWeight.Bold,
                                     letterSpacing = 1.2.sp,
-                                    color = if (activeNavSet == 0) ElegantPurpleAccent else Color(0xFF2AABEE),
+                                    color = when (activeNavSet) {
+                                        0 -> ElegantPurpleAccent
+                                        1 -> Color(0xFF2AABEE)
+                                        else -> Color(0xFFFFA000)
+                                    },
                                     fontSize = 10.sp
                                 )
                             }
@@ -230,13 +255,13 @@ fun MainAppScreen(viewModel: MainViewModel) {
                 )
                 HorizontalDivider(thickness = 1.dp, color = ElegantDarkBorder)
 
-                // Sélecteur d'espace de travail : Agent Core (5 modules) ou Commerce & Telegram (8 modules)
+                // Sélecteur d'espace de travail : Agent Core (5) | Commerce & Telegram (8) | Paramètres (⚙️)
                 Row(
                     modifier = Modifier
                         .fillMaxWidth()
                         .background(ElegantDarkSurface)
-                        .padding(horizontal = 14.dp, vertical = 6.dp),
-                    horizontalArrangement = Arrangement.spacedBy(8.dp)
+                        .padding(horizontal = 10.dp, vertical = 6.dp),
+                    horizontalArrangement = Arrangement.spacedBy(6.dp)
                 ) {
                     val isCore = (activeNavSet == 0)
                     Surface(
@@ -260,14 +285,15 @@ fun MainAppScreen(viewModel: MainViewModel) {
                                 Icons.Default.Psychology,
                                 contentDescription = null,
                                 tint = if (isCore) ElegantPurpleAccent else ElegantTextSecondary,
-                                modifier = Modifier.size(16.dp)
+                                modifier = Modifier.size(15.dp)
                             )
-                            Spacer(modifier = Modifier.width(6.dp))
+                            Spacer(modifier = Modifier.width(4.dp))
                             Text(
-                                "Agent Core (5)",
+                                "Core (5)",
                                 color = if (isCore) ElegantTextPrimary else ElegantTextSecondary,
                                 fontWeight = if (isCore) FontWeight.Bold else FontWeight.Normal,
-                                fontSize = 11.sp
+                                fontSize = 11.sp,
+                                maxLines = 1
                             )
                         }
                     }
@@ -278,7 +304,7 @@ fun MainAppScreen(viewModel: MainViewModel) {
                         color = if (isCommerce) Color(0xFF2AABEE).copy(alpha = 0.22f) else ElegantDarkBg,
                         border = BorderStroke(1.dp, if (isCommerce) Color(0xFF2AABEE) else ElegantDarkBorder),
                         modifier = Modifier
-                            .weight(1f)
+                            .weight(1.3f)
                             .clickable {
                                 activeNavSet = 1
                                 coroutineScope.launch { navBarPagerState.animateScrollToPage(1) }
@@ -294,14 +320,49 @@ fun MainAppScreen(viewModel: MainViewModel) {
                                 Icons.Default.Store,
                                 contentDescription = null,
                                 tint = if (isCommerce) Color(0xFF2AABEE) else ElegantTextSecondary,
-                                modifier = Modifier.size(16.dp)
+                                modifier = Modifier.size(15.dp)
                             )
-                            Spacer(modifier = Modifier.width(6.dp))
+                            Spacer(modifier = Modifier.width(4.dp))
                             Text(
-                                "Commerce & Telegram (8)",
+                                "Commerce (8)",
                                 color = if (isCommerce) ElegantTextPrimary else ElegantTextSecondary,
                                 fontWeight = if (isCommerce) FontWeight.Bold else FontWeight.Normal,
-                                fontSize = 11.sp
+                                fontSize = 11.sp,
+                                maxLines = 1
+                            )
+                        }
+                    }
+
+                    val isSettings = (activeNavSet == 2)
+                    Surface(
+                        shape = RoundedCornerShape(10.dp),
+                        color = if (isSettings) Color(0xFFFFA000).copy(alpha = 0.22f) else ElegantDarkBg,
+                        border = BorderStroke(1.dp, if (isSettings) Color(0xFFFFA000) else ElegantDarkBorder),
+                        modifier = Modifier
+                            .weight(1.1f)
+                            .clickable {
+                                activeNavSet = 2
+                            }
+                            .testTag("switch_to_settings")
+                    ) {
+                        Row(
+                            modifier = Modifier.padding(vertical = 7.dp),
+                            horizontalArrangement = Arrangement.Center,
+                            verticalAlignment = Alignment.CenterVertically
+                        ) {
+                            Icon(
+                                Icons.Default.Settings,
+                                contentDescription = null,
+                                tint = if (isSettings) Color(0xFFFFA000) else ElegantTextSecondary,
+                                modifier = Modifier.size(15.dp)
+                            )
+                            Spacer(modifier = Modifier.width(4.dp))
+                            Text(
+                                "Réglages",
+                                color = if (isSettings) ElegantTextPrimary else ElegantTextSecondary,
+                                fontWeight = if (isSettings) FontWeight.Bold else FontWeight.Normal,
+                                fontSize = 11.sp,
+                                maxLines = 1
                             )
                         }
                     }
@@ -380,11 +441,12 @@ fun MainAppScreen(viewModel: MainViewModel) {
             }
         },
         bottomBar = {
-            Surface(
-                color = ElegantDarkSurface,
-                modifier = Modifier.fillMaxWidth(),
-                border = BorderStroke(1.dp, ElegantDarkBorder)
-            ) {
+            if (activeNavSet != 2) {
+                Surface(
+                    color = ElegantDarkSurface,
+                    modifier = Modifier.fillMaxWidth(),
+                    border = BorderStroke(1.dp, ElegantDarkBorder)
+                ) {
                 Column(
                     modifier = Modifier
                         .fillMaxWidth()
@@ -537,6 +599,7 @@ fun MainAppScreen(viewModel: MainViewModel) {
                         }
                     }
                 }
+                }
             }
         }
     ) { innerPadding ->
@@ -546,60 +609,67 @@ fun MainAppScreen(viewModel: MainViewModel) {
                 .background(ElegantDarkBg)
                 .padding(innerPadding)
         ) {
-            if (activeNavSet == 0) {
-                // Contenu Barre Principale (1)
-                when (currentTabIndex) {
-                    0 -> {
-                        if (selectedNetworkChannel == 0) {
-                            InstancesScreen(
-                                viewModel = viewModel,
-                                instances = instances,
-                                onOpenSimulatorForInstance = { instId ->
-                                    simulatorTargetInstanceId = instId
-                                    currentTabIndex = 4 // switch to simulator tab
-                                }
-                            )
-                        } else {
-                            TelegramScreen(
-                                viewModel = viewModel
-                            )
+            when (activeNavSet) {
+                0 -> {
+                    // Contenu Barre Principale (1)
+                    when (currentTabIndex) {
+                        0 -> {
+                            if (selectedNetworkChannel == 0) {
+                                InstancesScreen(
+                                    viewModel = viewModel,
+                                    instances = instances,
+                                    onOpenSimulatorForInstance = { instId ->
+                                        simulatorTargetInstanceId = instId
+                                        currentTabIndex = 4 // switch to simulator tab
+                                    }
+                                )
+                            } else {
+                                TelegramScreen(
+                                    viewModel = viewModel
+                                )
+                            }
                         }
+                        1 -> AgentsScreen(
+                            viewModel = viewModel,
+                            agents = agents,
+                            instances = instances
+                        )
+                        2 -> KnowledgeRagScreen(
+                            viewModel = viewModel,
+                            sources = knowledgeSources,
+                            agents = agents
+                        )
+                        3 -> EdgeQuantizerScreen(
+                            viewModel = viewModel,
+                            quantizationStatus = quantizationStatus
+                        )
+                        4 -> McpAndSimulatorScreen(
+                            viewModel = viewModel,
+                            instances = instances,
+                            mcpTools = mcpTools,
+                            messages = recentMessages,
+                            webhooks = webhooks,
+                            initialInstanceId = simulatorTargetInstanceId
+                        )
                     }
-                    1 -> AgentsScreen(
-                        viewModel = viewModel,
-                        agents = agents,
-                        instances = instances
-                    )
-                    2 -> KnowledgeRagScreen(
-                        viewModel = viewModel,
-                        sources = knowledgeSources,
-                        agents = agents
-                    )
-                    3 -> EdgeQuantizerScreen(
-                        viewModel = viewModel,
-                        quantizationStatus = quantizationStatus
-                    )
-                    4 -> McpAndSimulatorScreen(
-                        viewModel = viewModel,
-                        instances = instances,
-                        mcpTools = mcpTools,
-                        messages = recentMessages,
-                        webhooks = webhooks,
-                        initialInstanceId = simulatorTargetInstanceId
-                    )
                 }
-            } else {
-                // Contenu Deuxième Barre E-commerce & Telegram (2)
-                // Telegram · Produits · Catégories · Fournisseurs · Contacts & Tarifs · Agences Livraison · Affiliés · Commandes
-                when (secondaryTabIndex) {
-                    0 -> TelegramScreen(viewModel = viewModel)
-                    1 -> ProductsScreen(viewModel = viewModel)
-                    2 -> CategoriesScreen(viewModel = viewModel)
-                    3 -> SuppliersScreen(viewModel = viewModel)
-                    4 -> PriceContactsScreen(viewModel = viewModel)
-                    5 -> ShippingAgenciesScreen(viewModel = viewModel)
-                    6 -> AffiliatesScreen(viewModel = viewModel)
-                    7 -> OrdersScreen(viewModel = viewModel)
+                1 -> {
+                    // Contenu Deuxième Barre E-commerce & Telegram (2)
+                    // Telegram · Produits · Catégories · Fournisseurs · Contacts & Tarifs · Agences Livraison · Affiliés · Commandes
+                    when (secondaryTabIndex) {
+                        0 -> TelegramScreen(viewModel = viewModel)
+                        1 -> ProductsScreen(viewModel = viewModel)
+                        2 -> CategoriesScreen(viewModel = viewModel)
+                        3 -> SuppliersScreen(viewModel = viewModel)
+                        4 -> PriceContactsScreen(viewModel = viewModel)
+                        5 -> ShippingAgenciesScreen(viewModel = viewModel)
+                        6 -> AffiliatesScreen(viewModel = viewModel)
+                        7 -> OrdersScreen(viewModel = viewModel)
+                    }
+                }
+                else -> {
+                    // Module Paramètres & Réglages Globaux (B)
+                    SettingsScreen(viewModel = viewModel)
                 }
             }
         }

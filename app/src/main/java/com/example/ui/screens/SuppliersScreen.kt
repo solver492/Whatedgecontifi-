@@ -68,6 +68,7 @@ fun SuppliersScreen(
     modifier: Modifier = Modifier
 ) {
     val suppliers by viewModel.commerceSuppliers.collectAsState()
+    val appSettings by viewModel.appSettings.collectAsState()
     var showAddDialog by remember { mutableStateOf(false) }
     var supplierToEdit by remember { mutableStateOf<SupplierEntity?>(null) }
 
@@ -238,7 +239,7 @@ fun SuppliersScreen(
         val initial = supplierToEdit
         var name by remember { mutableStateOf(initial?.name ?: "") }
         var tgUsername by remember { mutableStateOf(initial?.telegramUsername ?: "") }
-        var phone by remember { mutableStateOf(initial?.phone ?: "") }
+        var phone by remember { mutableStateOf(initial?.phone ?: "${appSettings.defaultCountryCode} ") }
         var address by remember { mutableStateOf(initial?.address ?: "") }
         var notes by remember { mutableStateOf(initial?.notes ?: "") }
 

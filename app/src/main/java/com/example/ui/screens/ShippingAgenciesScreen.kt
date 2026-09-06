@@ -70,6 +70,7 @@ fun ShippingAgenciesScreen(
     modifier: Modifier = Modifier
 ) {
     val agencies by viewModel.commerceShippingAgencies.collectAsState()
+    val appSettings by viewModel.appSettings.collectAsState()
     var showAddDialog by remember { mutableStateOf(false) }
     var agencyToEdit by remember { mutableStateOf<ShippingAgencyEntity?>(null) }
 
@@ -152,7 +153,7 @@ fun ShippingAgenciesScreen(
                                             fontSize = 15.sp
                                         )
                                         Text(
-                                            "Tarif de base : %.0f %s".format(agency.baseRate, agency.currency),
+                                            "Tarif de base : ${viewModel.formatPrice(agency.baseRate, agency.currency)}",
                                             color = WhatsAppGreen,
                                             fontSize = 12.sp,
                                             fontWeight = FontWeight.Bold
@@ -229,8 +230,8 @@ fun ShippingAgenciesScreen(
         val initial = agencyToEdit
         var name by remember { mutableStateOf(initial?.name ?: "") }
         var zones by remember { mutableStateOf(initial?.coverageZones ?: "") }
-        var baseRateStr by remember { mutableStateOf(initial?.baseRate?.toString() ?: "2000") }
-        var phone by remember { mutableStateOf(initial?.contactPhone ?: "") }
+        var baseRateStr by remember { mutableStateOf(initial?.baseRate?.toString() ?: "35.0") }
+        var phone by remember { mutableStateOf(initial?.contactPhone ?: "${appSettings.defaultCountryCode} ") }
         var hoursStr by remember { mutableStateOf(initial?.averageDeliveryHours?.toString() ?: "24") }
 
         AlertDialog(
@@ -259,7 +260,7 @@ fun ShippingAgenciesScreen(
                     OutlinedTextField(
                         value = zones,
                         onValueChange = { zones = it },
-                        label = { Text("Zones couvertes (ex: Dakar, Thiès)") },
+                        label = { Text("Zones couvertes (ex: Casablanca, Rabat, Marrakech)") },
                         singleLine = true,
                         modifier = Modifier.fillMaxWidth()
                     )
@@ -267,7 +268,7 @@ fun ShippingAgenciesScreen(
                         OutlinedTextField(
                             value = baseRateStr,
                             onValueChange = { baseRateStr = it },
-                            label = { Text("Tarif base (FCFA)") },
+                            label = { Text("Tarif base (${appSettings.currency})") },
                             keyboardOptions = KeyboardOptions(keyboardType = KeyboardType.Number),
                             modifier = Modifier.weight(1f)
                         )
@@ -295,13 +296,15 @@ fun ShippingAgenciesScreen(
                             val agency = (initial ?: ShippingAgencyEntity(
                                 id = "ship-${UUID.randomUUID().toString().take(8)}",
                                 name = name,
-                                coverageZones = zones
+                                coverageZones = zones,
+                                currency = appSettings.currency
                             )).copy(
                                 name = name,
                                 coverageZones = zones,
-                                baseRate = baseRateStr.toDoubleOrNull() ?: 2000.0,
+                                baseRate = baseRateStr.toDoubleOrNull() ?: 35.0,
                                 contactPhone = phone,
-                                averageDeliveryHours = hoursStr.toIntOrNull() ?: 24
+                                averageDeliveryHours = hoursStr.toIntOrNull() ?: 24,
+                                currency = initial?.currency ?: appSettings.currency
                             )
                             viewModel.saveShippingAgency(agency)
                             showAddDialog = false

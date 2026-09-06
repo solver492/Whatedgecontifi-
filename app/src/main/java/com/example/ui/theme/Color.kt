@@ -19,6 +19,7 @@ val ElegantPinkTertiary = Color(0xFFEFB8C8)
 // Status Indicators
 val ElegantGreenActive = Color(0xFF00E676)
 val ElegantRedAlert = Color(0xFFFF5252)
+val TelegramBlue = Color(0xFF2AABEE)
 
 // Text tokens
 val ElegantTextPrimary = Color(0xFFE6E1E5)

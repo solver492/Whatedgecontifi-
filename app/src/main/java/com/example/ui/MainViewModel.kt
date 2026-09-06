@@ -6,6 +6,7 @@ import androidx.lifecycle.viewModelScope
 import com.example.data.local.AppDatabase
 import com.example.data.local.entity.AffiliateEntity
 import com.example.data.local.entity.AgentEntity
+import com.example.data.local.entity.AppSettingsEntity
 import com.example.data.local.entity.CategoryEntity
 import com.example.data.local.entity.KnowledgeSourceEntity
 import com.example.data.local.entity.McpToolEntity
@@ -32,12 +33,14 @@ import com.example.domain.engine.LocalModelManager
 import com.example.domain.telegram.TelegramAuthResult
 import com.example.domain.telegram.TelegramBridgeStatus
 import com.example.domain.telegram.TelegramService
+import com.example.util.PriceFormatter
 import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.flow.MutableStateFlow
 import kotlinx.coroutines.flow.SharingStarted
 import kotlinx.coroutines.flow.StateFlow
 import kotlinx.coroutines.flow.asStateFlow
 import kotlinx.coroutines.flow.combine
+import kotlinx.coroutines.flow.map
 import kotlinx.coroutines.flow.stateIn
 import kotlinx.coroutines.launch
 import kotlinx.coroutines.withContext
@@ -129,6 +132,11 @@ class MainViewModel(application: Application) : AndroidViewModel(application) {
     val commerceOrdersToCall: StateFlow<List<OrderEntity>> = database.commerceDao()
         .getOrdersToCall()
         .stateIn(viewModelScope, SharingStarted.WhileSubscribed(5000), emptyList())
+
+    val appSettings: StateFlow<AppSettingsEntity> = database.settingsDao()
+        .getSettingsFlow()
+        .map { it ?: AppSettingsEntity() }
+        .stateIn(viewModelScope, SharingStarted.Eagerly, AppSettingsEntity())
 
     val allSelectableModels: StateFlow<List<SelectableModelOption>> = combine(
         modelManager.downloadedModels,
@@ -798,5 +806,63 @@ class MainViewModel(application: Application) : AndroidViewModel(application) {
         viewModelScope.launch(Dispatchers.IO) {
             database.commerceDao().deleteOrder(order)
         }
+    }
+
+    // --- PARAMÈTRES GLOBAUX & DEVISE / LOCALISATION (PARTIE B) ---
+    fun updateCurrency(newCurrency: String, symbol: String) {
+        viewModelScope.launch(Dispatchers.IO) {
+            val current = appSettings.value
+            val updated = current.copy(
+                currency = newCurrency,
+                currencySymbol = symbol,
+                updatedAt = System.currentTimeMillis()
+            )
+            database.settingsDao().saveSettings(updated)
+        }
+    }
+
+    fun updateDefaultCountryCode(newCode: String, country: String) {
+        viewModelScope.launch(Dispatchers.IO) {
+            val current = appSettings.value
+            val updated = current.copy(
+                defaultCountryCode = newCode,
+                countryName = country,
+                updatedAt = System.currentTimeMillis()
+            )
+            database.settingsDao().saveSettings(updated)
+        }
+    }
+
+    fun saveAppSettings(settings: AppSettingsEntity) {
+        viewModelScope.launch(Dispatchers.IO) {
+            database.settingsDao().saveSettings(settings.copy(updatedAt = System.currentTimeMillis()))
+        }
+    }
+
+    fun formatPrice(amount: Double?, currencyOverride: String? = null): String {
+        val curr = currencyOverride ?: appSettings.value.currency
+        val sep = appSettings.value.numberFormatThousandsSeparator
+        return PriceFormatter.format(amount, curr, sep)
+    }
+
+    fun formatPurchasePrice(amount: Double?, currencyOverride: String? = null): String {
+        val curr = currencyOverride ?: appSettings.value.currency
+        val sep = appSettings.value.numberFormatThousandsSeparator
+        return PriceFormatter.formatPurchase(amount, curr, sep)
+    }
+
+    fun exportDatabaseToJson(): String {
+        val json = org.json.JSONObject()
+        json.put("exportedAt", System.currentTimeMillis())
+        json.put("appVersion", "1.0.0")
+        json.put("currency", appSettings.value.currency)
+        json.put("defaultCountryCode", appSettings.value.defaultCountryCode)
+        json.put("productsCount", commerceProducts.value.size)
+        json.put("ordersCount", commerceOrders.value.size)
+        json.put("suppliersCount", commerceSuppliers.value.size)
+        json.put("categoriesCount", commerceCategories.value.size)
+        json.put("affiliatesCount", commerceAffiliates.value.size)
+        json.put("shippingAgenciesCount", commerceShippingAgencies.value.size)
+        return json.toString(2)
     }
 }

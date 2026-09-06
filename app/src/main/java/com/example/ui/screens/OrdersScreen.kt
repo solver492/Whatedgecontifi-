@@ -83,6 +83,7 @@ fun OrdersScreen(
     val allOrders by viewModel.commerceOrders.collectAsState()
     val ordersToCall by viewModel.commerceOrdersToCall.collectAsState()
     val products by viewModel.commerceProducts.collectAsState()
+    val appSettings by viewModel.appSettings.collectAsState()
     val context = LocalContext.current
 
     var selectedSubTab by remember { mutableIntStateOf(0) } // 0 = Clients à appeler (prioritaire), 1 = Toutes les commandes
@@ -294,7 +295,7 @@ fun OrdersScreen(
                                         )
                                     }
                                     Text(
-                                        "%.0f %s".format(order.totalAmount, order.currency),
+                                        viewModel.formatPrice(order.totalAmount, order.currency),
                                         color = WhatsAppGreen,
                                         fontWeight = FontWeight.Bold,
                                         fontSize = 14.sp
@@ -536,10 +537,10 @@ fun OrdersScreen(
     // Dialogue Création manuelle de commande
     if (showAddDialog) {
         var customerName by remember { mutableStateOf("") }
-        var customerPhone by remember { mutableStateOf("") }
+        var customerPhone by remember { mutableStateOf("${appSettings.defaultCountryCode} ") }
         var deliveryAddress by remember { mutableStateOf("") }
         var selectedProductId by remember { mutableStateOf(products.firstOrNull()?.id) }
-        var totalAmountStr by remember { mutableStateOf(products.firstOrNull()?.sellingPrice?.toString() ?: "15000") }
+        var totalAmountStr by remember { mutableStateOf(products.firstOrNull()?.sellingPrice?.toString() ?: "299") }
 
         AlertDialog(
             onDismissRequest = { showAddDialog = false },
@@ -578,7 +579,7 @@ fun OrdersScreen(
                     OutlinedTextField(
                         value = totalAmountStr,
                         onValueChange = { totalAmountStr = it },
-                        label = { Text("Montant Total (FCFA)") },
+                        label = { Text("Montant Total (${appSettings.currency})") },
                         singleLine = true,
                         modifier = Modifier.fillMaxWidth()
                     )
@@ -598,7 +599,8 @@ fun OrdersScreen(
                                 productId = selectedProductId,
                                 productName = selectedProd?.title ?: "Article Direct",
                                 quantity = 1,
-                                totalAmount = totalAmountStr.toDoubleOrNull() ?: 15000.0,
+                                totalAmount = totalAmountStr.toDoubleOrNull() ?: 299.0,
+                                currency = appSettings.currency,
                                 status = "PENDING_CONFIRMATION"
                             )
                             viewModel.saveOrder(order)

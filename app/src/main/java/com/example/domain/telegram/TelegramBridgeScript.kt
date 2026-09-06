@@ -4,17 +4,11 @@ object TelegramBridgeScript {
 
     const val TELEGRAM_DEFAULT_PORT = 8088
 
-    val INSTALL_COMMAND = """
-pkg update -y && pkg install python -y && pip install telethon aiohttp
-    """.trimIndent()
+    const val INSTALL_COMMAND = "pkg update -y && pkg install python -y && pip install telethon aiohttp"
 
-    val LAUNCH_COMMAND = """
-curl -sSL -o telegram_bridge.py http://127.0.0.1:8081/telegram_bridge.py && python telegram_bridge.py
-    """.trimIndent()
+    const val LAUNCH_COMMAND = "curl -sSL -o telegram_bridge.py http://127.0.0.1:8081/telegram_bridge.py && python telegram_bridge.py"
 
-    val COMPLETE_TERMUX_COMMAND = """
-pkg update -y && pkg install python -y && pip install telethon aiohttp && curl -sSL -o telegram_bridge.py http://127.0.0.1:8081/telegram_bridge.py && python telegram_bridge.py
-    """.trimIndent()
+    const val COMPLETE_TERMUX_COMMAND = "pkg update -y && pkg install python -y && pip install telethon aiohttp && curl -sSL -o telegram_bridge.py http://127.0.0.1:8081/telegram_bridge.py && python telegram_bridge.py"
 
     val PYTHON_BRIDGE_SCRIPT = """# =========================================================================
 # AI Edge - Telegram Telethon Bridge for Termux / Local Python Server

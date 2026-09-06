@@ -195,7 +195,7 @@ fun CategoriesScreen(
                             }
 
                             if (cat.description.isNotBlank()) {
-                                Spacer(modifier = Modifier.height(8.dp))
+                                Spacer(modifier = Modifier.height(6.dp))
                                 Text(
                                     cat.description,
                                     color = ElegantTextSecondary,
@@ -204,7 +204,46 @@ fun CategoriesScreen(
                                 )
                             }
 
-                            Spacer(modifier = Modifier.height(10.dp))
+                            // Aperçu des produits associés s'ils existent (chips compacts)
+                            val catProducts = products.filter { it.categoryId == cat.id }
+                            if (catProducts.isNotEmpty()) {
+                                Spacer(modifier = Modifier.height(8.dp))
+                                Row(
+                                    modifier = Modifier.fillMaxWidth(),
+                                    horizontalArrangement = Arrangement.spacedBy(6.dp),
+                                    verticalAlignment = Alignment.CenterVertically
+                                ) {
+                                    catProducts.take(2).forEach { prod ->
+                                        Surface(
+                                            shape = RoundedCornerShape(6.dp),
+                                            color = ElegantDarkSurfaceVariant.copy(alpha = 0.5f),
+                                            border = BorderStroke(1.dp, ElegantDarkBorder)
+                                        ) {
+                                            Row(
+                                                modifier = Modifier.padding(horizontal = 6.dp, vertical = 3.dp),
+                                                verticalAlignment = Alignment.CenterVertically
+                                            ) {
+                                                Text(
+                                                    text = prod.title.take(18) + if (prod.title.length > 18) "…" else "",
+                                                    fontSize = 10.sp,
+                                                    color = ElegantTextPrimary,
+                                                    maxLines = 1
+                                                )
+                                            }
+                                        }
+                                    }
+                                    if (catProducts.size > 2) {
+                                        Text(
+                                            text = "+${catProducts.size - 2} autres",
+                                            fontSize = 10.sp,
+                                            color = ElegantPurpleAccent,
+                                            fontWeight = FontWeight.Medium
+                                        )
+                                    }
+                                }
+                            }
+
+                            Spacer(modifier = Modifier.height(8.dp))
 
                             // Badge Agent Routage WhatsApp
                             Surface(

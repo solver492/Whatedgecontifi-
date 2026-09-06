@@ -387,18 +387,39 @@ class TelegramService(
     }
 
     fun openTermux(context: Context) {
-        try {
-            val intent = context.packageManager.getLaunchIntentForPackage("com.termux")
-            if (intent != null) {
-                intent.addFlags(Intent.FLAG_ACTIVITY_NEW_TASK)
-                context.startActivity(intent)
-            } else {
-                val storeIntent = Intent(Intent.ACTION_VIEW, Uri.parse("https://f-droid.org/packages/com.termux/"))
-                storeIntent.addFlags(Intent.FLAG_ACTIVITY_NEW_TASK)
-                context.startActivity(storeIntent)
+        val candidates = listOf("com.termux", "com.termux.fdroid", "com.termux.play")
+        val pm = context.packageManager
+
+        for (pkg in candidates) {
+            try {
+                val launchIntent = pm.getLaunchIntentForPackage(pkg)
+                if (launchIntent != null) {
+                    launchIntent.addFlags(Intent.FLAG_ACTIVITY_NEW_TASK)
+                    context.startActivity(launchIntent)
+                    return
+                }
+
+                // Try checking package info directly if launchIntent was null
+                pm.getPackageInfo(pkg, 0)
+                val explicitIntent = Intent(Intent.ACTION_MAIN).apply {
+                    setClassName(pkg, "com.termux.app.TermuxActivity")
+                    addFlags(Intent.FLAG_ACTIVITY_NEW_TASK)
+                }
+                context.startActivity(explicitIntent)
+                return
+            } catch (_: Exception) {
+                // Try next candidate
             }
+        }
+
+        // Fallback to web download only if Termux is genuinely not installed
+        try {
+            val storeIntent = Intent(Intent.ACTION_VIEW, Uri.parse("https://f-droid.org/packages/com.termux/")).apply {
+                addFlags(Intent.FLAG_ACTIVITY_NEW_TASK)
+            }
+            context.startActivity(storeIntent)
         } catch (e: Exception) {
-            Log.e(TAG, "Impossible d'ouvrir Termux: ${e.message}")
+            Log.e(TAG, "Impossible d'ouvrir le lien Termux: ${e.message}")
         }
     }
 

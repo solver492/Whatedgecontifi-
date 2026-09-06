@@ -64,6 +64,7 @@ import androidx.compose.ui.unit.dp
 import androidx.compose.ui.unit.sp
 import com.example.data.local.entity.ProductEntity
 import com.example.ui.MainViewModel
+import com.example.util.PriceFormatter
 import com.example.ui.theme.ElegantDarkBg
 import com.example.ui.theme.ElegantDarkBorder
 import com.example.ui.theme.ElegantDarkSurface
@@ -263,10 +264,12 @@ fun ProductsScreen(
     // Dialogue Ajout / Édition
     if (showAddDialog || productToEdit != null) {
         val target = productToEdit
+        val defaultCurrency = viewModel.appSettings.value.currency
         ProductEditDialog(
             initialProduct = target,
             categories = categories,
             suppliers = suppliers,
+            defaultCurrency = defaultCurrency,
             onDismiss = {
                 showAddDialog = false
                 productToEdit = null
@@ -389,8 +392,8 @@ private fun ProductCardItem(
                 verticalAlignment = Alignment.CenterVertically
             ) {
                 Column {
-                    val sellPriceStr = product.sellingPrice?.let { "%.0f %s".format(it, product.currency) } ?: "Non fixé"
-                    val buyPriceStr = product.purchasePrice?.let { "Achat: %.0f %s".format(it, product.currency) } ?: "Achat: Inconnu"
+                    val sellPriceStr = PriceFormatter.format(product.sellingPrice, product.currency)
+                    val buyPriceStr = PriceFormatter.formatPurchase(product.purchasePrice, product.currency)
 
                     Text(
                         sellPriceStr,
@@ -467,6 +470,7 @@ private fun ProductEditDialog(
     initialProduct: ProductEntity?,
     categories: List<com.example.data.local.entity.CategoryEntity>,
     suppliers: List<com.example.data.local.entity.SupplierEntity>,
+    defaultCurrency: String,
     onDismiss: () -> Unit,
     onSave: (ProductEntity) -> Unit
 ) {
@@ -514,14 +518,14 @@ private fun ProductEditDialog(
                     OutlinedTextField(
                         value = sellPrice,
                         onValueChange = { sellPrice = it },
-                        label = { Text("Prix Vente") },
+                        label = { Text("Prix Vente ($defaultCurrency)") },
                         keyboardOptions = KeyboardOptions(keyboardType = KeyboardType.Number),
                         modifier = Modifier.weight(1f)
                     )
                     OutlinedTextField(
                         value = buyPrice,
                         onValueChange = { buyPrice = it },
-                        label = { Text("Prix Achat") },
+                        label = { Text("Prix Achat ($defaultCurrency)") },
                         keyboardOptions = KeyboardOptions(keyboardType = KeyboardType.Number),
                         modifier = Modifier.weight(1f)
                     )
@@ -542,7 +546,8 @@ private fun ProductEditDialog(
                     if (title.isNotBlank()) {
                         val product = (initialProduct ?: ProductEntity(
                             id = "prod-${UUID.randomUUID().toString().take(8)}",
-                            title = title
+                            title = title,
+                            currency = defaultCurrency
                         )).copy(
                             title = title,
                             description = description,
@@ -551,6 +556,7 @@ private fun ProductEditDialog(
                             stockQuantity = stock.toIntOrNull() ?: 0,
                             categoryId = selectedCatId,
                             supplierId = selectedSupId,
+                            currency = initialProduct?.currency ?: defaultCurrency,
                             updatedAt = System.currentTimeMillis()
                         )
                         onSave(product)

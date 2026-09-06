@@ -72,6 +72,7 @@ fun PriceContactsScreen(
 ) {
     val contacts by viewModel.commercePriceContacts.collectAsState()
     val suppliers by viewModel.commerceSuppliers.collectAsState()
+    val appSettings by viewModel.appSettings.collectAsState()
 
     var showAddDialog by remember { mutableStateOf(false) }
     var contactToEdit by remember { mutableStateOf<PriceContactEntity?>(null) }
@@ -244,7 +245,7 @@ fun PriceContactsScreen(
         val initial = contactToEdit
         var supplierName by remember { mutableStateOf(initial?.supplierName ?: suppliers.firstOrNull()?.name ?: "") }
         var contactPerson by remember { mutableStateOf(initial?.contactPerson ?: "") }
-        var contactPhone by remember { mutableStateOf(initial?.contactPhone ?: "") }
+        var contactPhone by remember { mutableStateOf(initial?.contactPhone ?: "${appSettings.defaultCountryCode} ") }
         var discountStr by remember { mutableStateOf(initial?.negotiatedDiscountPercent?.toString() ?: "10.0") }
         var minQtyStr by remember { mutableStateOf(initial?.minOrderQuantity?.toString() ?: "1") }
         var paymentTerms by remember { mutableStateOf(initial?.paymentTerms ?: "Comptant à la livraison") }

@@ -101,8 +101,8 @@ private val ElegantDarkBg = Color(0xFF0F0E17)
 private val ElegantDarkSurface = Color(0xFF1B192E)
 private val ElegantDarkCard = Color(0xFF22203A)
 private val ElegantDarkBorder = Color(0xFF2D2A4A)
-private val TelegramBlue = Color(0xFF2AABEE)
-private val TelegramBlueLight = Color(0xFF229ED9)
+val TelegramBlue = Color(0xFF2AABEE)
+val TelegramBlueLight = Color(0xFF229ED9)
 private val ElegantGreenActive = Color(0xFF10B981)
 private val ElegantTextPrimary = Color(0xFFF3F4F6)
 private val ElegantTextSecondary = Color(0xFF9CA3AF)
@@ -281,8 +281,10 @@ fun TelegramScreen(
                     ) {
                         Button(
                             onClick = {
+                                val cleanCmd = TelegramBridgeScript.INSTALL_COMMAND.trim()
                                 val clipboard = context.getSystemService(Context.CLIPBOARD_SERVICE) as ClipboardManager
-                                clipboard.setPrimaryClip(ClipData.newPlainText("Telegram Termux", TelegramBridgeScript.INSTALL_COMMAND))
+                                clipboard.setPrimaryClip(ClipData.newPlainText("Telegram Termux", cleanCmd))
+                                android.util.Log.d("TelegramScreen", "Copied to clipboard: '$cleanCmd'")
                                 toastMessage = "Commande d'installation copiée ! Ouverture de Termux..."
                                 viewModel.openTermuxForTelegram(context)
                             },
@@ -293,7 +295,7 @@ fun TelegramScreen(
                         ) {
                             Icon(Icons.Default.Terminal, contentDescription = null, modifier = Modifier.size(16.dp))
                             Spacer(modifier = Modifier.width(4.dp))
-                            Text("Lancer Termux (Port 8088)", fontSize = 11.sp, fontWeight = FontWeight.Bold, maxLines = 1, softWrap = false)
+                            Text("Lancer Termux", fontSize = 11.sp, fontWeight = FontWeight.Bold, maxLines = 1, softWrap = false)
                         }
 
                         OutlinedButton(
@@ -657,28 +659,34 @@ fun TelegramScreen(
                     horizontalArrangement = Arrangement.SpaceBetween,
                     verticalAlignment = Alignment.CenterVertically
                 ) {
-                    Column {
+                    Column(modifier = Modifier.weight(1f)) {
                         Text(
                             text = "Canaux Fournisseurs & Alertes",
                             style = MaterialTheme.typography.titleMedium,
                             fontWeight = FontWeight.Bold,
-                            color = ElegantTextPrimary
+                            color = ElegantTextPrimary,
+                            maxLines = 1,
+                            overflow = TextOverflow.Ellipsis
                         )
                         Text(
                             text = "${channels.count { it.isMonitored }} canal/groupes surveillés pour l'ingestion",
                             style = MaterialTheme.typography.bodySmall,
-                            color = ElegantTextSecondary
+                            color = ElegantTextSecondary,
+                            maxLines = 1,
+                            overflow = TextOverflow.Ellipsis
                         )
                     }
 
+                    Spacer(modifier = Modifier.width(8.dp))
+
                     TextButton(
                         onClick = { showAddChannelDialog = true },
-                        contentPadding = PaddingValues(horizontal = 8.dp, vertical = 4.dp),
+                        contentPadding = PaddingValues(horizontal = 10.dp, vertical = 4.dp),
                         modifier = Modifier.testTag("add_channel_button")
                     ) {
                         Icon(Icons.Default.Add, contentDescription = null, tint = TelegramBlue, modifier = Modifier.size(16.dp))
                         Spacer(modifier = Modifier.width(4.dp))
-                        Text("Ajouter", color = TelegramBlue, fontWeight = FontWeight.Bold)
+                        Text("Ajouter", color = TelegramBlue, fontWeight = FontWeight.Bold, maxLines = 1, softWrap = false)
                     }
                 }
             }
@@ -1197,8 +1205,10 @@ fun TelegramScreen(
             confirmButton = {
                 Button(
                     onClick = {
+                        val cleanCmd = TelegramBridgeScript.INSTALL_COMMAND.trim()
                         val clipboard = context.getSystemService(Context.CLIPBOARD_SERVICE) as ClipboardManager
-                        clipboard.setPrimaryClip(ClipData.newPlainText("Telegram Install", TelegramBridgeScript.INSTALL_COMMAND))
+                        clipboard.setPrimaryClip(ClipData.newPlainText("Telegram Install", cleanCmd))
+                        android.util.Log.d("TelegramScreen", "Copied to clipboard: '$cleanCmd'")
                         Toast.makeText(context, "Commande copiée !", Toast.LENGTH_SHORT).show()
                         showTermuxDialog = false
                     },

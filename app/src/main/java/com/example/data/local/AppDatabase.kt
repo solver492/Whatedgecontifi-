@@ -9,12 +9,14 @@ import com.example.data.local.dao.AgentDao
 import com.example.data.local.dao.CommerceDao
 import com.example.data.local.dao.KnowledgeDao
 import com.example.data.local.dao.McpDao
+import com.example.data.local.dao.SettingsDao
 import com.example.data.local.dao.TelegramDao
 import com.example.data.local.dao.WebhookDao
 import com.example.data.local.dao.WhatsAppDao
 import com.example.data.local.dao.WhatsAppMessageDao
 import com.example.data.local.entity.AffiliateEntity
 import com.example.data.local.entity.AgentEntity
+import com.example.data.local.entity.AppSettingsEntity
 import com.example.data.local.entity.CategoryEntity
 import com.example.data.local.entity.KnowledgeSourceEntity
 import com.example.data.local.entity.McpToolEntity
@@ -53,9 +55,10 @@ import java.util.UUID
         PriceContactEntity::class,
         ShippingAgencyEntity::class,
         AffiliateEntity::class,
-        OrderEntity::class
+        OrderEntity::class,
+        AppSettingsEntity::class
     ],
-    version = 5,
+    version = 6,
     exportSchema = false
 )
 abstract class AppDatabase : RoomDatabase() {
@@ -67,6 +70,7 @@ abstract class AppDatabase : RoomDatabase() {
     abstract fun webhookDao(): WebhookDao
     abstract fun telegramDao(): TelegramDao
     abstract fun commerceDao(): CommerceDao
+    abstract fun settingsDao(): SettingsDao
 
     companion object {
         @Volatile
@@ -533,6 +537,21 @@ Rassure le client, note sa demande et propose de réserver un créneau ou de lai
                     affiliateCode = null,
                     customerCallNotes = "Client appelé et validé. Confirme paiement à la livraison.",
                     callAttemptsCount = 1
+                )
+            )
+
+            // 7. Paramètres Généraux de l'Application (Maroc + MAD par défaut)
+            val settingsDao = database.settingsDao()
+            settingsDao.saveSettings(
+                AppSettingsEntity(
+                    id = "global_settings",
+                    currency = "MAD",
+                    currencySymbol = "DH",
+                    defaultCountryCode = "+212",
+                    countryName = "Maroc",
+                    timeZone = "Africa/Casablanca",
+                    defaultProfitMarginPercent = 40.0,
+                    lowStockThreshold = 5
                 )
             )
         }
