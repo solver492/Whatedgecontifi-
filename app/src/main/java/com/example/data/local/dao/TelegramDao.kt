@@ -85,6 +85,9 @@ interface TelegramDao {
     @Query("DELETE FROM telegram_messages WHERE id = :id")
     suspend fun deleteMessage(id: String)
 
+    @Query("UPDATE telegram_messages SET isProcessed = 1 WHERE id = :id")
+    suspend fun markMessageProcessed(id: String)
+
     @Query("DELETE FROM telegram_messages")
     suspend fun clearAllMessages()
 

@@ -11,6 +11,7 @@ import com.example.data.local.entity.CategoryEntity
 import com.example.data.local.entity.OrderEntity
 import com.example.data.local.entity.PriceContactEntity
 import com.example.data.local.entity.ProductEntity
+import com.example.data.local.entity.ProductMediaEntity
 import com.example.data.local.entity.ShippingAgencyEntity
 import com.example.data.local.entity.SupplierEntity
 import kotlinx.coroutines.flow.Flow
@@ -37,9 +38,25 @@ interface CommerceDao {
     @Delete
     suspend fun deleteProduct(product: ProductEntity)
 
+    // --- PRODUCT MEDIA ---
+    @Query("SELECT * FROM ecommerce_product_media WHERE productId = :productId ORDER BY sortOrder ASC")
+    fun getMediaForProduct(productId: String): Flow<List<ProductMediaEntity>>
+
+    @Query("SELECT * FROM ecommerce_product_media WHERE productId = :productId ORDER BY sortOrder ASC")
+    suspend fun getMediaListForProduct(productId: String): List<ProductMediaEntity>
+
+    @Insert(onConflict = OnConflictStrategy.REPLACE)
+    suspend fun insertProductMedia(media: List<ProductMediaEntity>)
+
+    @Query("DELETE FROM ecommerce_product_media WHERE productId = :productId")
+    suspend fun deleteMediaForProduct(productId: String)
+
     // --- CATÉGORIES ---
     @Query("SELECT * FROM ecommerce_categories ORDER BY name ASC")
     fun getAllCategories(): Flow<List<CategoryEntity>>
+
+    @Query("SELECT * FROM ecommerce_categories ORDER BY name ASC")
+    suspend fun getAllCategoriesList(): List<CategoryEntity>
 
     @Insert(onConflict = OnConflictStrategy.REPLACE)
     suspend fun insertCategory(category: CategoryEntity)

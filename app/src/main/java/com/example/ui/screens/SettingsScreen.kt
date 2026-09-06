@@ -138,6 +138,30 @@ fun SettingsScreen(
         Pair("+1", "États-Unis / Canada")
     )
 
+    val performSave: () -> Unit = {
+        val marginParsed = profitMargin.toDoubleOrNull() ?: 40.0
+        val thresholdParsed = lowStockThreshold.toIntOrNull() ?: 5
+        val updated = settings.copy(
+            currency = currency,
+            currencySymbol = currencySymbol,
+            defaultCountryCode = defaultCountryCode,
+            countryName = countryName,
+            defaultProfitMarginPercent = marginParsed,
+            lowStockThreshold = thresholdParsed,
+            geminiApiKey = geminiKey,
+            supabaseUrl = supabaseUrl,
+            supabaseAnonKey = supabaseKey,
+            telegramApiId = telegramApiId,
+            telegramApiHash = telegramApiHash,
+            notifyNewOrders = notifyOrders,
+            notifyTelegramProducts = notifyProducts,
+            notifyLowStock = notifyStock,
+            updatedAt = System.currentTimeMillis()
+        )
+        viewModel.saveAppSettings(updated)
+        Toast.makeText(context, "Paramètres enregistrés avec succès !", Toast.LENGTH_SHORT).show()
+    }
+
     Box(modifier = modifier.fillMaxSize().background(ElegantDarkBg)) {
         LazyColumn(
             modifier = Modifier.fillMaxSize(),
@@ -165,30 +189,9 @@ fun SettingsScreen(
                         )
                     }
 
+                    // Bouton situé directement en dessous du titre Paramètres & Configuration
                     Button(
-                        onClick = {
-                            val marginParsed = profitMargin.toDoubleOrNull() ?: 40.0
-                            val thresholdParsed = lowStockThreshold.toIntOrNull() ?: 5
-                            val updated = settings.copy(
-                                currency = currency,
-                                currencySymbol = currencySymbol,
-                                defaultCountryCode = defaultCountryCode,
-                                countryName = countryName,
-                                defaultProfitMarginPercent = marginParsed,
-                                lowStockThreshold = thresholdParsed,
-                                geminiApiKey = geminiKey,
-                                supabaseUrl = supabaseUrl,
-                                supabaseAnonKey = supabaseKey,
-                                telegramApiId = telegramApiId,
-                                telegramApiHash = telegramApiHash,
-                                notifyNewOrders = notifyOrders,
-                                notifyTelegramProducts = notifyProducts,
-                                notifyLowStock = notifyStock,
-                                updatedAt = System.currentTimeMillis()
-                            )
-                            viewModel.saveAppSettings(updated)
-                            Toast.makeText(context, "Paramètres enregistrés avec succès !", Toast.LENGTH_SHORT).show()
-                        },
+                        onClick = performSave,
                         colors = ButtonDefaults.buttonColors(containerColor = ElegantPurpleAccent),
                         shape = RoundedCornerShape(12.dp),
                         modifier = Modifier
@@ -692,6 +695,22 @@ fun SettingsScreen(
                             Text("Générer l'Export JSON de la base", color = ElegantTextPrimary, fontWeight = FontWeight.SemiBold)
                         }
                     }
+                }
+            }
+
+            item {
+                Button(
+                    onClick = performSave,
+                    colors = ButtonDefaults.buttonColors(containerColor = ElegantPurpleAccent),
+                    shape = RoundedCornerShape(12.dp),
+                    modifier = Modifier
+                        .fillMaxWidth()
+                        .height(50.dp)
+                        .testTag("save_settings_bottom_button")
+                ) {
+                    Icon(Icons.Default.Save, contentDescription = null, modifier = Modifier.size(20.dp))
+                    Spacer(modifier = Modifier.width(8.dp))
+                    Text("Enregistrer tous les Paramètres", fontWeight = FontWeight.Bold, fontSize = 14.sp)
                 }
             }
 

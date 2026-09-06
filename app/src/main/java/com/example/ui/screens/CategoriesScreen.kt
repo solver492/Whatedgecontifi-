@@ -22,11 +22,13 @@ import androidx.compose.foundation.shape.RoundedCornerShape
 import androidx.compose.material.icons.Icons
 import androidx.compose.material.icons.automirrored.filled.Chat
 import androidx.compose.material.icons.filled.Add
+import androidx.compose.material.icons.filled.Autorenew
 import androidx.compose.material.icons.filled.Category
 import androidx.compose.material.icons.filled.Checkroom
 import androidx.compose.material.icons.filled.Delete
 import androidx.compose.material.icons.filled.Devices
 import androidx.compose.material.icons.filled.Edit
+import androidx.compose.material.icons.filled.Save
 import androidx.compose.material.icons.filled.SmartToy
 import androidx.compose.material.icons.filled.Spa
 import androidx.compose.material3.AlertDialog
@@ -34,6 +36,7 @@ import androidx.compose.material3.Button
 import androidx.compose.material3.ButtonDefaults
 import androidx.compose.material3.Card
 import androidx.compose.material3.CardDefaults
+import androidx.compose.material3.DropdownMenu
 import androidx.compose.material3.DropdownMenuItem
 import androidx.compose.material3.ExperimentalMaterial3Api
 import androidx.compose.material3.ExposedDropdownMenuBox
@@ -82,6 +85,7 @@ fun CategoriesScreen(
 
     var showAddDialog by remember { mutableStateOf(false) }
     var categoryToEdit by remember { mutableStateOf<CategoryEntity?>(null) }
+    var expandedAgentMenuCatId by remember { mutableStateOf<String?>(null) }
 
     Box(modifier = modifier.fillMaxSize().background(ElegantDarkBg)) {
         LazyColumn(
@@ -245,45 +249,82 @@ fun CategoriesScreen(
 
                             Spacer(modifier = Modifier.height(8.dp))
 
-                            // Badge Agent Routage WhatsApp
-                            Surface(
-                                shape = RoundedCornerShape(8.dp),
-                                color = ElegantDarkBg,
-                                border = BorderStroke(1.dp, ElegantDarkBorder),
-                                modifier = Modifier.fillMaxWidth()
-                            ) {
-                                Row(
-                                    modifier = Modifier.padding(horizontal = 10.dp, vertical = 6.dp),
-                                    verticalAlignment = Alignment.CenterVertically,
-                                    horizontalArrangement = Arrangement.SpaceBetween
+                            // Badge Agent Routage WhatsApp (Cliquable avec DropdownMenu)
+                            Box(modifier = Modifier.fillMaxWidth()) {
+                                Surface(
+                                    shape = RoundedCornerShape(8.dp),
+                                    color = ElegantDarkBg,
+                                    border = BorderStroke(1.dp, if (assignedAgent != null) WhatsAppGreen.copy(alpha = 0.5f) else ElegantDarkBorder),
+                                    modifier = Modifier
+                                        .fillMaxWidth()
+                                        .clickable { expandedAgentMenuCatId = cat.id }
                                 ) {
-                                    Row(verticalAlignment = Alignment.CenterVertically) {
-                                        Icon(Icons.Default.SmartToy, contentDescription = null, tint = WhatsAppGreen, modifier = Modifier.size(14.dp))
-                                        Spacer(modifier = Modifier.width(6.dp))
-                                        Text(
-                                            "Agent Assigné :",
-                                            color = ElegantTextSecondary,
-                                            fontSize = 11.sp
-                                        )
-                                        Spacer(modifier = Modifier.width(4.dp))
-                                        Text(
-                                            assignedAgent?.name ?: "Routage Automatique (Par défaut)",
-                                            color = if (assignedAgent != null) ElegantTextPrimary else ElegantTextSecondary.copy(alpha = 0.7f),
-                                            fontWeight = FontWeight.Medium,
-                                            fontSize = 11.sp
-                                        )
-                                    }
-
-                                    Surface(
-                                        shape = RoundedCornerShape(4.dp),
-                                        color = WhatsAppGreen.copy(alpha = 0.15f)
+                                    Row(
+                                        modifier = Modifier.padding(horizontal = 10.dp, vertical = 6.dp),
+                                        verticalAlignment = Alignment.CenterVertically,
+                                        horizontalArrangement = Arrangement.SpaceBetween
                                     ) {
-                                        Text(
-                                            "WhatsApp Auto",
-                                            color = WhatsAppGreen,
-                                            fontSize = 9.sp,
-                                            fontWeight = FontWeight.Bold,
-                                            modifier = Modifier.padding(horizontal = 5.dp, vertical = 2.dp)
+                                        Row(
+                                            verticalAlignment = Alignment.CenterVertically,
+                                            modifier = Modifier.weight(1f, fill = false)
+                                        ) {
+                                            Icon(Icons.Default.SmartToy, contentDescription = null, tint = WhatsAppGreen, modifier = Modifier.size(14.dp))
+                                            Spacer(modifier = Modifier.width(6.dp))
+                                            Text(
+                                                "Agent : ",
+                                                color = ElegantTextSecondary,
+                                                fontSize = 11.sp
+                                            )
+                                            Text(
+                                                assignedAgent?.name ?: "Routage Automatique",
+                                                color = if (assignedAgent != null) ElegantTextPrimary else ElegantTextSecondary.copy(alpha = 0.7f),
+                                                fontWeight = FontWeight.Medium,
+                                                fontSize = 11.sp,
+                                                maxLines = 1
+                                            )
+                                        }
+
+                                        Surface(
+                                            shape = RoundedCornerShape(4.dp),
+                                            color = WhatsAppGreen.copy(alpha = 0.15f)
+                                        ) {
+                                            Text(
+                                                "Modifier ▾",
+                                                color = WhatsAppGreen,
+                                                fontSize = 9.sp,
+                                                fontWeight = FontWeight.Bold,
+                                                modifier = Modifier.padding(horizontal = 5.dp, vertical = 2.dp)
+                                            )
+                                        }
+                                    }
+                                }
+
+                                DropdownMenu(
+                                    expanded = expandedAgentMenuCatId == cat.id,
+                                    onDismissRequest = { expandedAgentMenuCatId = null },
+                                    modifier = Modifier.background(ElegantDarkSurface)
+                                ) {
+                                    DropdownMenuItem(
+                                        text = { Text("Routage Automatique (Par défaut)", color = ElegantTextSecondary, fontSize = 12.sp) },
+                                        leadingIcon = { Icon(Icons.Default.Autorenew, contentDescription = null, tint = ElegantTextSecondary, modifier = Modifier.size(16.dp)) },
+                                        onClick = {
+                                            viewModel.updateCategoryAgent(cat.id, null)
+                                            expandedAgentMenuCatId = null
+                                        }
+                                    )
+                                    agents.forEach { ag ->
+                                        DropdownMenuItem(
+                                            text = {
+                                                Column {
+                                                    Text(ag.name, color = ElegantTextPrimary, fontSize = 12.sp, fontWeight = FontWeight.SemiBold)
+                                                    Text(ag.role, color = ElegantTextSecondary, fontSize = 10.sp)
+                                                }
+                                            },
+                                            leadingIcon = { Icon(Icons.Default.SmartToy, contentDescription = null, tint = WhatsAppGreen, modifier = Modifier.size(16.dp)) },
+                                            onClick = {
+                                                viewModel.updateCategoryAgent(cat.id, ag.id)
+                                                expandedAgentMenuCatId = null
+                                            }
                                         )
                                     }
                                 }
@@ -353,6 +394,24 @@ fun CategoriesScreen(
                     Spacer(modifier = Modifier.height(4.dp))
                     Text("Agent IA WhatsApp pour cette catégorie :", color = ElegantTextSecondary, fontSize = 11.sp)
 
+                    // Option automatique
+                    val isAuto = selectedAgentId == null
+                    Surface(
+                        shape = RoundedCornerShape(8.dp),
+                        color = if (isAuto) ElegantDarkSurfaceVariant else ElegantDarkBg,
+                        border = BorderStroke(1.dp, if (isAuto) ElegantPurpleAccent else ElegantDarkBorder),
+                        modifier = Modifier.fillMaxWidth().clickable { selectedAgentId = null }
+                    ) {
+                        Row(
+                            modifier = Modifier.padding(horizontal = 8.dp, vertical = 6.dp),
+                            verticalAlignment = Alignment.CenterVertically
+                        ) {
+                            Icon(Icons.Default.Autorenew, contentDescription = null, tint = if (isAuto) ElegantPurpleAccent else ElegantTextSecondary, modifier = Modifier.size(15.dp))
+                            Spacer(modifier = Modifier.width(6.dp))
+                            Text("Routage Automatique (Par défaut)", color = if (isAuto) ElegantTextPrimary else ElegantTextSecondary, fontSize = 12.sp)
+                        }
+                    }
+
                     // Choix Agent
                     agents.forEach { agent ->
                         val isChosen = selectedAgentId == agent.id
@@ -372,39 +431,51 @@ fun CategoriesScreen(
                             }
                         }
                     }
-                }
-            },
-            confirmButton = {
-                Button(
-                    onClick = {
-                        if (name.isNotBlank()) {
-                            val cat = (initialCat ?: CategoryEntity(
-                                id = "cat-${UUID.randomUUID().toString().take(8)}",
-                                name = name,
-                                slug = name.lowercase().replace(" ", "-")
-                            )).copy(
-                                name = name,
-                                description = description,
-                                assignedAgentId = selectedAgentId
-                            )
-                            viewModel.saveCategory(cat)
+
+                    Spacer(modifier = Modifier.height(14.dp))
+
+                    // Bouton Enregistrer situé en bas des paramètres
+                    Button(
+                        onClick = {
+                            if (name.isNotBlank()) {
+                                val cat = (initialCat ?: CategoryEntity(
+                                    id = "cat-${UUID.randomUUID().toString().take(8)}",
+                                    name = name,
+                                    slug = name.lowercase().replace(" ", "-")
+                                )).copy(
+                                    name = name,
+                                    description = description,
+                                    assignedAgentId = selectedAgentId
+                                )
+                                viewModel.saveCategory(cat)
+                                showAddDialog = false
+                                categoryToEdit = null
+                            }
+                        },
+                        colors = ButtonDefaults.buttonColors(containerColor = ElegantPurpleAccent),
+                        shape = RoundedCornerShape(10.dp),
+                        modifier = Modifier
+                            .fillMaxWidth()
+                            .height(48.dp)
+                            .testTag("save_category_button")
+                    ) {
+                        Icon(Icons.Default.Save, contentDescription = null, modifier = Modifier.size(16.dp))
+                        Spacer(modifier = Modifier.width(8.dp))
+                        Text("Enregistrer la catégorie", color = Color.White, fontWeight = FontWeight.Bold)
+                    }
+
+                    TextButton(
+                        onClick = {
                             showAddDialog = false
                             categoryToEdit = null
-                        }
-                    },
-                    colors = ButtonDefaults.buttonColors(containerColor = ElegantPurpleAccent)
-                ) {
-                    Text("Enregistrer", color = Color.White)
+                        },
+                        modifier = Modifier.fillMaxWidth()
+                    ) {
+                        Text("Annuler", color = ElegantTextSecondary)
+                    }
                 }
             },
-            dismissButton = {
-                TextButton(onClick = {
-                    showAddDialog = false
-                    categoryToEdit = null
-                }) {
-                    Text("Annuler", color = ElegantTextSecondary)
-                }
-            }
+            confirmButton = {}
         )
     }
 }

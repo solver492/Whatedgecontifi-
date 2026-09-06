@@ -2,6 +2,8 @@ package com.example.domain.baileys
 
 import com.example.data.local.AppDatabase
 import com.example.data.local.entity.AgentEntity
+import com.example.data.local.entity.CategoryEntity
+import com.example.data.local.entity.ProductEntity
 import com.example.data.local.entity.WhatsAppInstanceEntity
 import com.example.data.local.entity.WhatsAppMessageEntity
 import com.example.domain.engine.AiEdgeQuantizerEngine
@@ -105,9 +107,21 @@ class BaileysService(private val database: AppDatabase) {
         msgDao.insertMessage(incomingMsg)
         _eventsFlow.emit(BaileysEvent(instanceId, "messages.upsert", "Incoming message from $senderName: $messageText"))
 
-        // 2. Resolve target AI Agent via smart routing engine
+        // 2. Resolve target AI Agent via smart routing engine (Category-first, then Instance, Keywords, Schedule, Fallback)
         val activeAgents = agentDao.getActiveAgents()
-        val (selectedAgent, routingReason) = selectBestAgentForMessage(activeAgents, instanceId, messageText)
+        val allCategories = database.commerceDao().getAllCategoriesList()
+        val allProducts = database.commerceDao().getAllProductsList()
+
+        val routingDecision = selectBestAgentForMessage(
+            agents = activeAgents,
+            categories = allCategories,
+            products = allProducts,
+            instanceId = instanceId,
+            messageText = messageText
+        )
+        val selectedAgent = routingDecision.agent
+        val routingReason = routingDecision.reason
+        val matchedCategory = routingDecision.matchedCategory
 
         if (selectedAgent == null) {
             // No active agent configured or all inactive
@@ -131,8 +145,20 @@ class BaileysService(private val database: AppDatabase) {
         // 4. Retrieve enabled MCP tools
         val mcpTools = mcpDao.getEnabledTools()
 
-        // 5. Retrieve dynamic product catalog (e-commerce & Telegram ingested products)
-        val products = database.commerceDao().getAllProductsList()
+        // 5. Retrieve dynamic product catalog (RAG) filtered by category if applicable
+        val products = if (matchedCategory != null) {
+            val filtered = allProducts.filter { it.categoryId == matchedCategory.id }
+            if (filtered.isNotEmpty()) filtered else allProducts
+        } else {
+            val agentCats = allCategories.filter { it.assignedAgentId == selectedAgent.id }
+            if (agentCats.isNotEmpty()) {
+                val catIds = agentCats.map { it.id }.toSet()
+                val filtered = allProducts.filter { it.categoryId in catIds }
+                if (filtered.isNotEmpty()) filtered else allProducts
+            } else {
+                allProducts
+            }
+        }
 
         // 6. Execute Local AI Edge Inference
         val inferenceResult = AiEdgeQuantizerEngine.runAgentInference(
@@ -176,25 +202,77 @@ class BaileysService(private val database: AppDatabase) {
         return responseMsg
     }
 
+    data class RoutingDecision(
+        val agent: AgentEntity?,
+        val reason: String,
+        val matchedCategory: CategoryEntity? = null
+    )
+
     /**
      * Determines which agent should handle the message according to:
+     * 0. Category-based dedicated Agent (via product match or category keywords)
      * 1. Assigned instance filter
-     * 2. Keyword trigger matching
-     * 3. Operational schedule (e.g. 08:00 - 19:00 vs night guard)
-     * 4. Fallback agent
+     * 2. Semantic Sales/Pricing routing
+     * 3. Keyword trigger matching
+     * 4. Operational schedule (e.g. 08:00 - 19:00 vs night guard)
+     * 5. Fallback agent
      */
     private fun selectBestAgentForMessage(
         agents: List<AgentEntity>,
+        categories: List<CategoryEntity>,
+        products: List<ProductEntity>,
         instanceId: String,
         messageText: String
-    ): Pair<AgentEntity?, String> {
-        // 0. Top Priority: Agent explicitly assigned to this instance
+    ): RoutingDecision {
+        val textLower = messageText.lowercase(Locale.getDefault())
+
+        // 0. TOP PRIORITY: Category-based Smart Routing
+        // Check if message corresponds to a specific Product or Category
+        val matchedProduct = products.firstOrNull { prod ->
+            val pTitle = prod.title.lowercase(Locale.getDefault())
+            if (pTitle.length >= 3 && textLower.contains(pTitle)) true
+            else {
+                val words = pTitle.split(" ").map { it.trim() }.filter { it.length >= 4 }
+                words.isNotEmpty() && words.any { textLower.contains(it) }
+            }
+        }
+
+        var candidateCategory: CategoryEntity? = null
+        if (matchedProduct != null && !matchedProduct.categoryId.isNullOrBlank()) {
+            candidateCategory = categories.firstOrNull { it.id == matchedProduct.categoryId }
+        }
+
+        if (candidateCategory == null) {
+            candidateCategory = categories.firstOrNull { cat ->
+                val catName = cat.name.lowercase(Locale.getDefault())
+                val catSlug = cat.slug.lowercase(Locale.getDefault())
+                val catDesc = cat.description.lowercase(Locale.getDefault())
+                textLower.contains(catName) || textLower.contains(catSlug) ||
+                        (catName.split(" ", "&", "-").any { w -> w.length >= 4 && textLower.contains(w) }) ||
+                        (catDesc.isNotBlank() && catDesc.split(" ", ",", ";").any { w -> w.length >= 4 && textLower.contains(w) })
+            }
+        }
+
+        if (candidateCategory != null && !candidateCategory.assignedAgentId.isNullOrBlank()) {
+            val assignedAgent = agents.firstOrNull { it.id == candidateCategory.assignedAgentId && it.isActive }
+                ?: agents.firstOrNull { it.id == candidateCategory.assignedAgentId }
+            if (assignedAgent != null) {
+                val reasonDetail = if (matchedProduct != null) {
+                    "Agent dédié à la catégorie '${candidateCategory.name}' (détecté via produit '${matchedProduct.title}')"
+                } else {
+                    "Agent dédié à la catégorie '${candidateCategory.name}'"
+                }
+                return RoutingDecision(assignedAgent, reasonDetail, candidateCategory)
+            }
+        }
+
+        // 1. Explicitly assigned to instance
         val explicitlyAssigned = agents.filter { it.isActive }.firstOrNull { agent ->
             val assignedList = agent.assignedInstanceIdsCsv.split(",").map { it.trim() }.filter { it.isNotBlank() }
             assignedList.contains(instanceId) && agent.assignedInstanceIdsCsv != "*"
         }
         if (explicitlyAssigned != null) {
-            return Pair(explicitlyAssigned, "Agent assigné à cette instance (${explicitlyAssigned.name})")
+            return RoutingDecision(explicitlyAssigned, "Agent assigné à cette instance (${explicitlyAssigned.name})", candidateCategory)
         }
 
         val eligibleAgents = agents.filter { agent ->
@@ -204,18 +282,16 @@ class BaileysService(private val database: AppDatabase) {
         val candidateAgents = if (eligibleAgents.isNotEmpty()) {
             eligibleAgents
         } else {
-            // Gracefully fallback to active agents if none explicitly assigned
             agents.filter { it.isActive }.ifEmpty { agents }
         }
 
         if (candidateAgents.isEmpty()) {
-            return Pair(null, "No agent configured in application")
+            return RoutingDecision(null, "No agent configured in application", candidateCategory)
         }
 
-        val textLower = messageText.lowercase(Locale.getDefault())
         val currentTimeStr = SimpleDateFormat("HH:mm", Locale.getDefault()).format(Date())
 
-        // 1. Semantic Domain Priority: Sales / Offers / Pricing
+        // 2. Semantic Domain Priority: Sales / Offers / Pricing
         val isSalesQuery = textLower.contains("vend") || textLower.contains("propos") ||
                 textLower.contains("prix") || textLower.contains("tarif") ||
                 textLower.contains("cout") || textLower.contains("coût") ||
@@ -228,39 +304,39 @@ class BaileysService(private val database: AppDatabase) {
                 it.role.equals("Commercial", ignoreCase = true) || it.name.contains("Vente", ignoreCase = true)
             }
             if (commercialAgent != null) {
-                return Pair(commercialAgent, "Aiguillage commercial (${commercialAgent.name})")
+                return RoutingDecision(commercialAgent, "Aiguillage commercial (${commercialAgent.name})", candidateCategory)
             }
         }
 
-        // 2. Keyword-based matching priority
+        // 3. Keyword-based matching priority
         for (agent in candidateAgents) {
             if (agent.activationMode == "KEYWORDS" || agent.keywordsCsv.isNotBlank()) {
                 val keywords = agent.keywordsCsv.split(",").map { it.trim().lowercase(Locale.getDefault()) }.filter { it.isNotBlank() && it != "*" }
                 val matchedKeyword = keywords.firstOrNull { kw -> textLower.contains(kw) }
                 if (matchedKeyword != null) {
-                    return Pair(agent, "Keyword trigger match: '$matchedKeyword'")
+                    return RoutingDecision(agent, "Keyword trigger match: '$matchedKeyword'", candidateCategory)
                 }
             }
         }
 
-        // 2. Schedule-based matching
+        // 4. Schedule-based matching
         for (agent in candidateAgents) {
             if (agent.activationMode == "SCHEDULE") {
                 if (isTimeInRange(currentTimeStr, agent.scheduleStart, agent.scheduleEnd)) {
-                    return Pair(agent, "Scheduled active slot (${agent.scheduleStart} - ${agent.scheduleEnd})")
+                    return RoutingDecision(agent, "Scheduled active slot (${agent.scheduleStart} - ${agent.scheduleEnd})", candidateCategory)
                 }
             }
         }
 
-        // 3. "ALWAYS" active agent
+        // 5. "ALWAYS" active agent
         val alwaysActive = candidateAgents.firstOrNull { it.activationMode == "ALWAYS" }
         if (alwaysActive != null) {
-            return Pair(alwaysActive, "Default always-active responder")
+            return RoutingDecision(alwaysActive, "Default always-active responder", candidateCategory)
         }
 
-        // 4. Fallback agent
+        // 6. Fallback agent
         val fallback = candidateAgents.firstOrNull { it.isFallback } ?: candidateAgents.firstOrNull()
-        return Pair(fallback, "General fallback agent")
+        return RoutingDecision(fallback, "General fallback agent", candidateCategory)
     }
 
     private fun isTimeInRange(current: String, start: String, end: String): Boolean {

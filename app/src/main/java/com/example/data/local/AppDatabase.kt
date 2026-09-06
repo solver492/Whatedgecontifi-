@@ -23,6 +23,7 @@ import com.example.data.local.entity.McpToolEntity
 import com.example.data.local.entity.OrderEntity
 import com.example.data.local.entity.PriceContactEntity
 import com.example.data.local.entity.ProductEntity
+import com.example.data.local.entity.ProductMediaEntity
 import com.example.data.local.entity.ShippingAgencyEntity
 import com.example.data.local.entity.SupplierEntity
 import com.example.data.local.entity.TelegramAccountEntity
@@ -50,6 +51,7 @@ import java.util.UUID
         TelegramMessageEntity::class,
         TelegramLogEntity::class,
         ProductEntity::class,
+        ProductMediaEntity::class,
         CategoryEntity::class,
         SupplierEntity::class,
         PriceContactEntity::class,
@@ -58,7 +60,7 @@ import java.util.UUID
         OrderEntity::class,
         AppSettingsEntity::class
     ],
-    version = 6,
+    version = 7,
     exportSchema = false
 )
 abstract class AppDatabase : RoomDatabase() {

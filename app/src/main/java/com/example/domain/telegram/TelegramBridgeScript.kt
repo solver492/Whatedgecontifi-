@@ -282,6 +282,21 @@ async def handle_watch_channel(request):
     except Exception as e:
         return web.json_response({"success": False, "error": str(e)}, status=500)
 
+MEDIA_ROOT = os.path.join(os.getcwd(), "telegram_media")
+os.makedirs(MEDIA_ROOT, exist_ok=True)
+
+async def handle_serve_media(request):
+    try:
+        channel_id = request.match_info.get('channel_id')
+        msg_id = request.match_info.get('msg_id')
+        filename = request.match_info.get('filename')
+        file_path = os.path.join(MEDIA_ROOT, str(channel_id), str(msg_id), filename)
+        if os.path.exists(file_path) and os.path.isfile(file_path):
+            return web.FileResponse(file_path)
+        return web.Response(status=404, text="Fichier média introuvable")
+    except Exception as e:
+        return web.Response(status=500, text=str(e))
+
 async def handle_get_channel_messages(request):
     try:
         global client
@@ -289,29 +304,83 @@ async def handle_get_channel_messages(request):
             return web.json_response({"success": False, "error": "Non authentifié sur Telegram"}, status=401)
             
         channel_id = int(request.match_info.get('id', 0))
-        messages = []
-        async for msg in client.iter_messages(channel_id, limit=25):
-            media_type = "none"
-            if msg.photo:
-                media_type = "photo"
-            elif msg.document:
-                media_type = "document"
-                
-            sender = await msg.get_sender()
-            sender_name = getattr(sender, 'first_name', '') or "Auteur"
+        raw_msgs = []
+        async for msg in client.iter_messages(channel_id, limit=35):
+            raw_msgs.append(msg)
 
-            messages.append({
-                "id": msg.id,
-                "text": msg.raw_text or "",
-                "timestamp": int(msg.date.timestamp() * 1000) if msg.date else 0,
-                "media_type": media_type,
-                "sender_id": msg.sender_id or 0,
-                "sender_name": sender_name
-            })
-            
+        grouped_posts = {}
+        ordered_keys = []
+
+        for msg in raw_msgs:
+            group_key = f"group_{msg.grouped_id}" if getattr(msg, 'grouped_id', None) else f"single_{msg.id}"
+            if group_key not in grouped_posts:
+                grouped_posts[group_key] = {
+                    "id": msg.id,
+                    "text": msg.raw_text or "",
+                    "timestamp": int(msg.date.timestamp() * 1000) if msg.date else 0,
+                    "media_type": "none",
+                    "media_urls": [],
+                    "local_media_paths": [],
+                    "sender_id": msg.sender_id or 0,
+                    "sender_name": "Auteur"
+                }
+                ordered_keys.append(group_key)
+            else:
+                if not grouped_posts[group_key]["text"] and msg.raw_text:
+                    grouped_posts[group_key]["text"] = msg.raw_text
+
+            sender = await msg.get_sender()
+            if sender:
+                s_name = getattr(sender, 'first_name', '') or getattr(sender, 'title', '') or ""
+                if s_name:
+                    grouped_posts[group_key]["sender_name"] = s_name
+
+            if msg.media:
+                post = grouped_posts[group_key]
+                m_type = "photo"
+                if getattr(msg, 'video', None):
+                    m_type = "video"
+                elif getattr(msg, 'document', None):
+                    mime = getattr(msg.document, 'mime_type', '') or ''
+                    if 'video' in mime:
+                        m_type = "video"
+                    elif 'image' in mime:
+                        m_type = "photo"
+                    else:
+                        m_type = "document"
+
+                if post["media_type"] == "none":
+                    post["media_type"] = m_type
+                elif post["media_type"] == "photo" and m_type == "photo":
+                    post["media_type"] = "album"
+
+                target_dir = os.path.join(MEDIA_ROOT, str(channel_id), str(msg.id))
+                os.makedirs(target_dir, exist_ok=True)
+                existing = [f for f in os.listdir(target_dir) if os.path.isfile(os.path.join(target_dir, f))]
+                if not existing:
+                    try:
+                        dl_path = await asyncio.wait_for(client.download_media(msg, file=target_dir), timeout=12.0)
+                        if dl_path and os.path.exists(dl_path):
+                            existing.append(os.path.basename(dl_path))
+                    except Exception as dl_err:
+                        print(f"Erreur téléchargement média msg {msg.id}: {dl_err}")
+
+                for f in existing:
+                    m_url = f"http://127.0.0.1:{PORT}/media/{channel_id}/{msg.id}/{f}"
+                    if m_url not in post["media_urls"]:
+                        post["media_urls"].append(m_url)
+                        post["local_media_paths"].append(os.path.join(target_dir, f))
+
+        messages = []
+        for k in ordered_keys:
+            p = grouped_posts[k]
+            p["media_url"] = p["media_urls"][0] if p["media_urls"] else None
+            messages.append(p)
+
         return web.json_response({
             "success": True,
             "channel_id": channel_id,
+            "count": len(messages),
             "messages": messages
         })
     except Exception as e:
@@ -347,6 +416,7 @@ def init_app():
     
     app.router.add_post('/telegram/channels/{id}/watch', handle_watch_channel)
     app.router.add_get('/telegram/channels/{id}/messages', handle_get_channel_messages)
+    app.router.add_get('/media/{channel_id}/{msg_id}/{filename}', handle_serve_media)
     
     app.router.add_post('/telegram/disconnect', handle_disconnect)
     app.router.add_post('/disconnect', handle_disconnect)

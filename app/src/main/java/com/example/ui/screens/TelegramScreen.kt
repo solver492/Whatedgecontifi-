@@ -1501,33 +1501,39 @@ fun TelegramScreen(
                         shape = RoundedCornerShape(12.dp),
                         modifier = Modifier.fillMaxWidth()
                     )
+
+                    Spacer(modifier = Modifier.height(8.dp))
+
+                    Button(
+                        onClick = {
+                            if (newChannelTitle.isNotBlank()) {
+                                val accountId = activeAccount?.id ?: "default_account"
+                                val cleanUser = newChannelUsername.removePrefix("@").trim()
+                                viewModel.addManualTelegramChannel(
+                                    title = newChannelTitle,
+                                    username = cleanUser,
+                                    accountId = accountId
+                                )
+                                showAddChannelDialog = false
+                                toastMessage = "Canal '$newChannelTitle' ajouté à la surveillance !"
+                            }
+                        },
+                        colors = ButtonDefaults.buttonColors(containerColor = TelegramBlue),
+                        shape = RoundedCornerShape(10.dp),
+                        modifier = Modifier.fillMaxWidth().height(46.dp)
+                    ) {
+                        Text("Enregistrer le Canal", fontWeight = FontWeight.Bold)
+                    }
+
+                    TextButton(
+                        onClick = { showAddChannelDialog = false },
+                        modifier = Modifier.fillMaxWidth()
+                    ) {
+                        Text("Annuler", color = ElegantTextSecondary)
+                    }
                 }
             },
-            confirmButton = {
-                Button(
-                    onClick = {
-                        if (newChannelTitle.isNotBlank()) {
-                            val accountId = activeAccount?.id ?: "default_account"
-                            val cleanUser = newChannelUsername.removePrefix("@").trim()
-                            viewModel.addManualTelegramChannel(
-                                title = newChannelTitle,
-                                username = cleanUser,
-                                accountId = accountId
-                            )
-                            showAddChannelDialog = false
-                            toastMessage = "Canal '$newChannelTitle' ajouté à la surveillance !"
-                        }
-                    },
-                    colors = ButtonDefaults.buttonColors(containerColor = TelegramBlue)
-                ) {
-                    Text("Enregistrer", fontWeight = FontWeight.Bold)
-                }
-            },
-            dismissButton = {
-                TextButton(onClick = { showAddChannelDialog = false }) {
-                    Text("Annuler", color = ElegantTextSecondary)
-                }
-            },
+            confirmButton = {},
             containerColor = ElegantDarkSurface
         )
     }

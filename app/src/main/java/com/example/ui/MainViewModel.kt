@@ -13,6 +13,7 @@ import com.example.data.local.entity.McpToolEntity
 import com.example.data.local.entity.OrderEntity
 import com.example.data.local.entity.PriceContactEntity
 import com.example.data.local.entity.ProductEntity
+import com.example.data.local.entity.ProductMediaEntity
 import com.example.data.local.entity.ShippingAgencyEntity
 import com.example.data.local.entity.SupplierEntity
 import com.example.data.local.entity.TelegramAccountEntity
@@ -30,6 +31,7 @@ import com.example.domain.engine.AiEdgeQuantizerEngine
 import com.example.domain.engine.EdgeModelCatalogItem
 import com.example.domain.engine.EdgeQuantizedModelInfo
 import com.example.domain.engine.LocalModelManager
+import com.example.domain.intelligence.ProductIntelligenceEngine
 import com.example.domain.telegram.TelegramAuthResult
 import com.example.domain.telegram.TelegramBridgeStatus
 import com.example.domain.telegram.TelegramService
@@ -768,9 +770,52 @@ class MainViewModel(application: Application) : AndroidViewModel(application) {
         }
     }
 
+    fun getProductMedia(productId: String): kotlinx.coroutines.flow.Flow<List<ProductMediaEntity>> {
+        return database.commerceDao().getMediaForProduct(productId)
+    }
+
+    fun saveProductWithMedia(product: ProductEntity, mediaUrls: List<String>) {
+        viewModelScope.launch(Dispatchers.IO) {
+            database.commerceDao().insertProduct(product)
+            if (mediaUrls.isNotEmpty()) {
+                val mediaEntities = mediaUrls.mapIndexed { index, url ->
+                    ProductMediaEntity(
+                        id = java.util.UUID.randomUUID().toString(),
+                        productId = product.id,
+                        mediaUrl = url,
+                        mediaType = if (url.endsWith(".mp4") || url.endsWith(".mov") || url.endsWith(".mkv")) "video" else "photo",
+                        sortOrder = index
+                    )
+                }
+                database.commerceDao().insertProductMedia(mediaEntities)
+            }
+        }
+    }
+
+    suspend fun importTelegramMessageAsProduct(message: TelegramMessageEntity): ProductEntity = kotlinx.coroutines.withContext(Dispatchers.IO) {
+        val currency = appSettings.value.currency.ifBlank { "MAD" }
+        val (product, mediaUrls) = ProductIntelligenceEngine.extractFromTelegramMessage(message, currency)
+        database.commerceDao().insertProduct(product)
+        if (mediaUrls.isNotEmpty()) {
+            val mediaEntities = mediaUrls.mapIndexed { index, url ->
+                ProductMediaEntity(
+                    id = java.util.UUID.randomUUID().toString(),
+                    productId = product.id,
+                    mediaUrl = url,
+                    mediaType = if (url.endsWith(".mp4") || url.endsWith(".mov") || url.endsWith(".mkv")) "video" else "photo",
+                    sortOrder = index
+                )
+            }
+            database.commerceDao().insertProductMedia(mediaEntities)
+        }
+        database.telegramDao().markMessageProcessed(message.id)
+        product
+    }
+
     fun deleteProduct(product: ProductEntity) {
         viewModelScope.launch(Dispatchers.IO) {
             database.commerceDao().deleteProduct(product)
+            database.commerceDao().deleteMediaForProduct(product.id)
         }
     }
 
@@ -789,6 +834,16 @@ class MainViewModel(application: Application) : AndroidViewModel(application) {
     fun saveCategory(category: CategoryEntity) {
         viewModelScope.launch(Dispatchers.IO) {
             database.commerceDao().insertCategory(category)
+        }
+    }
+
+    fun updateCategoryAgent(categoryId: String, agentId: String?) {
+        viewModelScope.launch(Dispatchers.IO) {
+            val all = database.commerceDao().getAllCategoriesList()
+            val cat = all.find { it.id == categoryId }
+            if (cat != null) {
+                database.commerceDao().updateCategory(cat.copy(assignedAgentId = agentId))
+            }
         }
     }
 

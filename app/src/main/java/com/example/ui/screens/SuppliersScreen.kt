@@ -294,40 +294,46 @@ fun SuppliersScreen(
                         maxLines = 2,
                         modifier = Modifier.fillMaxWidth()
                     )
-                }
-            },
-            confirmButton = {
-                Button(
-                    onClick = {
-                        if (name.isNotBlank()) {
-                            val sup = (initial ?: SupplierEntity(
-                                id = "sup-${UUID.randomUUID().toString().take(8)}",
-                                name = name
-                            )).copy(
-                                name = name,
-                                telegramUsername = tgUsername.ifBlank { null },
-                                phone = phone,
-                                address = address,
-                                notes = notes
-                            )
-                            viewModel.saveSupplier(sup)
+
+                    Spacer(modifier = Modifier.height(10.dp))
+
+                    Button(
+                        onClick = {
+                            if (name.isNotBlank()) {
+                                val sup = (initial ?: SupplierEntity(
+                                    id = "sup-${UUID.randomUUID().toString().take(8)}",
+                                    name = name
+                                )).copy(
+                                    name = name,
+                                    telegramUsername = tgUsername.ifBlank { null },
+                                    phone = phone,
+                                    address = address,
+                                    notes = notes
+                                )
+                                viewModel.saveSupplier(sup)
+                                showAddDialog = false
+                                supplierToEdit = null
+                            }
+                        },
+                        colors = ButtonDefaults.buttonColors(containerColor = ElegantPurpleAccent),
+                        shape = RoundedCornerShape(10.dp),
+                        modifier = Modifier.fillMaxWidth().height(48.dp)
+                    ) {
+                        Text("Enregistrer le Fournisseur", color = Color.White, fontWeight = FontWeight.Bold)
+                    }
+
+                    TextButton(
+                        onClick = {
                             showAddDialog = false
                             supplierToEdit = null
-                        }
-                    },
-                    colors = ButtonDefaults.buttonColors(containerColor = ElegantPurpleAccent)
-                ) {
-                    Text("Enregistrer", color = Color.White)
+                        },
+                        modifier = Modifier.fillMaxWidth()
+                    ) {
+                        Text("Annuler", color = ElegantTextSecondary)
+                    }
                 }
             },
-            dismissButton = {
-                TextButton(onClick = {
-                    showAddDialog = false
-                    supplierToEdit = null
-                }) {
-                    Text("Annuler", color = ElegantTextSecondary)
-                }
-            }
+            confirmButton = {}
         )
     }
 }

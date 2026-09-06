@@ -370,6 +370,18 @@ class TelegramService(
                 for (i in 0 until arr.length()) {
                     val obj = arr.getJSONObject(i)
                     val msgId = obj.getLong("id")
+                    val mediaUrlDirect = obj.optString("media_url", "").ifBlank { null }
+                    val mediaUrlsArr = obj.optJSONArray("media_urls")
+                    val firstMediaUrl = if (mediaUrlsArr != null && mediaUrlsArr.length() > 0) {
+                        mediaUrlsArr.getString(0)
+                    } else {
+                        mediaUrlDirect
+                    }
+                    val localMediaPathsArr = obj.optJSONArray("local_media_paths")
+                    val firstLocalPath = if (localMediaPathsArr != null && localMediaPathsArr.length() > 0) {
+                        localMediaPathsArr.getString(0)
+                    } else null
+
                     val msgEntity = TelegramMessageEntity(
                         id = "${channelId}_$msgId",
                         channelId = channelId,
@@ -380,7 +392,8 @@ class TelegramService(
                         senderName = obj.optString("sender_name", "Auteur"),
                         text = obj.optString("text", ""),
                         mediaType = obj.optString("media_type", "none"),
-                        mediaUrl = null,
+                        mediaUrl = firstMediaUrl,
+                        localMediaPath = firstLocalPath,
                         timestamp = obj.optLong("timestamp", System.currentTimeMillis()),
                         rawJson = obj.toString()
                     )

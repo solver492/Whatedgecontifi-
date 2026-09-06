@@ -52,7 +52,31 @@ data class TelegramMessageEntity(
     val timestamp: Long = System.currentTimeMillis(),
     val isProcessed: Boolean = false, // True once converted or analyzed into Product
     val rawJson: String? = null
-)
+) {
+    fun getMediaUrls(): List<String> {
+        val list = mutableListOf<String>()
+        if (!mediaUrl.isNullOrBlank()) {
+            list.add(mediaUrl)
+        }
+        if (!rawJson.isNullOrBlank()) {
+            try {
+                val obj = org.json.JSONObject(rawJson)
+                val arr = obj.optJSONArray("media_urls")
+                if (arr != null) {
+                    for (i in 0 until arr.length()) {
+                        val u = arr.getString(i)
+                        if (!list.contains(u)) {
+                            list.add(u)
+                        }
+                    }
+                }
+            } catch (e: Exception) {
+                // Ignore parse errors
+            }
+        }
+        return list
+    }
+}
 
 @Entity(tableName = "telegram_logs")
 data class TelegramLogEntity(

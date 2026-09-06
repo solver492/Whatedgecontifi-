@@ -287,43 +287,49 @@ fun ShippingAgenciesScreen(
                         singleLine = true,
                         modifier = Modifier.fillMaxWidth()
                     )
-                }
-            },
-            confirmButton = {
-                Button(
-                    onClick = {
-                        if (name.isNotBlank()) {
-                            val agency = (initial ?: ShippingAgencyEntity(
-                                id = "ship-${UUID.randomUUID().toString().take(8)}",
-                                name = name,
-                                coverageZones = zones,
-                                currency = appSettings.currency
-                            )).copy(
-                                name = name,
-                                coverageZones = zones,
-                                baseRate = baseRateStr.toDoubleOrNull() ?: 35.0,
-                                contactPhone = phone,
-                                averageDeliveryHours = hoursStr.toIntOrNull() ?: 24,
-                                currency = initial?.currency ?: appSettings.currency
-                            )
-                            viewModel.saveShippingAgency(agency)
+
+                    Spacer(modifier = Modifier.height(10.dp))
+
+                    Button(
+                        onClick = {
+                            if (name.isNotBlank()) {
+                                val agency = (initial ?: ShippingAgencyEntity(
+                                    id = "ship-${UUID.randomUUID().toString().take(8)}",
+                                    name = name,
+                                    coverageZones = zones,
+                                    currency = appSettings.currency
+                                )).copy(
+                                    name = name,
+                                    coverageZones = zones,
+                                    baseRate = baseRateStr.toDoubleOrNull() ?: 35.0,
+                                    contactPhone = phone,
+                                    averageDeliveryHours = hoursStr.toIntOrNull() ?: 24,
+                                    currency = initial?.currency ?: appSettings.currency
+                                )
+                                viewModel.saveShippingAgency(agency)
+                                showAddDialog = false
+                                agencyToEdit = null
+                            }
+                        },
+                        colors = ButtonDefaults.buttonColors(containerColor = ElegantPurpleAccent),
+                        shape = RoundedCornerShape(10.dp),
+                        modifier = Modifier.fillMaxWidth().height(48.dp)
+                    ) {
+                        Text("Enregistrer l'Agence", color = Color.White, fontWeight = FontWeight.Bold)
+                    }
+
+                    TextButton(
+                        onClick = {
                             showAddDialog = false
                             agencyToEdit = null
-                        }
-                    },
-                    colors = ButtonDefaults.buttonColors(containerColor = ElegantPurpleAccent)
-                ) {
-                    Text("Enregistrer", color = Color.White)
+                        },
+                        modifier = Modifier.fillMaxWidth()
+                    ) {
+                        Text("Annuler", color = ElegantTextSecondary)
+                    }
                 }
             },
-            dismissButton = {
-                TextButton(onClick = {
-                    showAddDialog = false
-                    agencyToEdit = null
-                }) {
-                    Text("Annuler", color = ElegantTextSecondary)
-                }
-            }
+            confirmButton = {}
         )
     }
 }

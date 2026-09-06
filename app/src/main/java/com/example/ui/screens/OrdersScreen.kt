@@ -513,24 +513,30 @@ fun OrdersScreen(
                             )
                         }
                     }
+
+                    Spacer(modifier = Modifier.height(10.dp))
+
+                    Button(
+                        onClick = {
+                            viewModel.updateOrderStatusAndNotes(order.id, nextStatus, notes)
+                            orderToValidateNotes = null
+                        },
+                        colors = ButtonDefaults.buttonColors(containerColor = ElegantPurpleAccent),
+                        shape = RoundedCornerShape(10.dp),
+                        modifier = Modifier.fillMaxWidth().height(46.dp)
+                    ) {
+                        Text("Enregistrer les modifications", color = Color.White, fontWeight = FontWeight.Bold)
+                    }
+
+                    TextButton(
+                        onClick = { orderToValidateNotes = null },
+                        modifier = Modifier.fillMaxWidth()
+                    ) {
+                        Text("Fermer", color = ElegantTextSecondary)
+                    }
                 }
             },
-            confirmButton = {
-                Button(
-                    onClick = {
-                        viewModel.updateOrderStatusAndNotes(order.id, nextStatus, notes)
-                        orderToValidateNotes = null
-                    },
-                    colors = ButtonDefaults.buttonColors(containerColor = ElegantPurpleAccent)
-                ) {
-                    Text("Enregistrer", color = Color.White)
-                }
-            },
-            dismissButton = {
-                TextButton(onClick = { orderToValidateNotes = null }) {
-                    Text("Fermer", color = ElegantTextSecondary)
-                }
-            }
+            confirmButton = {}
         )
     }
 
@@ -583,40 +589,46 @@ fun OrdersScreen(
                         singleLine = true,
                         modifier = Modifier.fillMaxWidth()
                     )
+
+                    Spacer(modifier = Modifier.height(10.dp))
+
+                    Button(
+                        onClick = {
+                            if (customerName.isNotBlank() && customerPhone.isNotBlank()) {
+                                val selectedProd = products.find { it.id == selectedProductId }
+                                val order = OrderEntity(
+                                    id = "ord-${UUID.randomUUID().toString().take(8)}",
+                                    orderNumber = "CMD-${System.currentTimeMillis().toString().takeLast(4)}",
+                                    customerName = customerName,
+                                    customerPhone = customerPhone,
+                                    deliveryAddress = deliveryAddress,
+                                    productId = selectedProductId,
+                                    productName = selectedProd?.title ?: "Article Direct",
+                                    quantity = 1,
+                                    totalAmount = totalAmountStr.toDoubleOrNull() ?: 299.0,
+                                    currency = appSettings.currency,
+                                    status = "PENDING_CONFIRMATION"
+                                )
+                                viewModel.saveOrder(order)
+                                showAddDialog = false
+                            }
+                        },
+                        colors = ButtonDefaults.buttonColors(containerColor = ElegantPurpleAccent),
+                        shape = RoundedCornerShape(10.dp),
+                        modifier = Modifier.fillMaxWidth().height(48.dp)
+                    ) {
+                        Text("Créer la Commande", color = Color.White, fontWeight = FontWeight.Bold)
+                    }
+
+                    TextButton(
+                        onClick = { showAddDialog = false },
+                        modifier = Modifier.fillMaxWidth()
+                    ) {
+                        Text("Annuler", color = ElegantTextSecondary)
+                    }
                 }
             },
-            confirmButton = {
-                Button(
-                    onClick = {
-                        if (customerName.isNotBlank() && customerPhone.isNotBlank()) {
-                            val selectedProd = products.find { it.id == selectedProductId }
-                            val order = OrderEntity(
-                                id = "ord-${UUID.randomUUID().toString().take(8)}",
-                                orderNumber = "CMD-${System.currentTimeMillis().toString().takeLast(4)}",
-                                customerName = customerName,
-                                customerPhone = customerPhone,
-                                deliveryAddress = deliveryAddress,
-                                productId = selectedProductId,
-                                productName = selectedProd?.title ?: "Article Direct",
-                                quantity = 1,
-                                totalAmount = totalAmountStr.toDoubleOrNull() ?: 299.0,
-                                currency = appSettings.currency,
-                                status = "PENDING_CONFIRMATION"
-                            )
-                            viewModel.saveOrder(order)
-                            showAddDialog = false
-                        }
-                    },
-                    colors = ButtonDefaults.buttonColors(containerColor = ElegantPurpleAccent)
-                ) {
-                    Text("Créer Commande", color = Color.White)
-                }
-            },
-            dismissButton = {
-                TextButton(onClick = { showAddDialog = false }) {
-                    Text("Annuler", color = ElegantTextSecondary)
-                }
-            }
+            confirmButton = {}
         )
     }
 }

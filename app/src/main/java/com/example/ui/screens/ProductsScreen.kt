@@ -31,8 +31,11 @@ import androidx.compose.material.icons.filled.Delete
 import androidx.compose.material.icons.filled.Edit
 import androidx.compose.material.icons.filled.Inventory2
 import androidx.compose.material.icons.filled.Public
+import androidx.compose.material.icons.filled.Save
 import androidx.compose.material.icons.filled.Search
 import androidx.compose.material.icons.filled.Sell
+import androidx.compose.ui.layout.ContentScale
+import coil.compose.AsyncImage
 import androidx.compose.material3.AlertDialog
 import androidx.compose.material3.Button
 import androidx.compose.material3.ButtonDefaults
@@ -363,24 +366,44 @@ private fun ProductCardItem(
                 }
             }
 
-            Spacer(modifier = Modifier.height(6.dp))
+            Spacer(modifier = Modifier.height(8.dp))
 
-            Text(
-                product.title,
-                color = ElegantTextPrimary,
-                fontWeight = FontWeight.Bold,
-                fontSize = 14.sp
-            )
+            Row(
+                modifier = Modifier.fillMaxWidth(),
+                horizontalArrangement = Arrangement.spacedBy(10.dp),
+                verticalAlignment = Alignment.Top
+            ) {
+                if (!product.primaryImageUrl.isNullOrBlank()) {
+                    AsyncImage(
+                        model = product.primaryImageUrl,
+                        contentDescription = product.title,
+                        contentScale = ContentScale.Crop,
+                        modifier = Modifier
+                            .size(60.dp)
+                            .clip(RoundedCornerShape(8.dp))
+                            .background(ElegantDarkBg)
+                    )
+                }
 
-            if (product.description.isNotBlank()) {
-                Spacer(modifier = Modifier.height(3.dp))
-                Text(
-                    product.description,
-                    color = ElegantTextSecondary,
-                    fontSize = 11.sp,
-                    maxLines = 2,
-                    lineHeight = 15.sp
-                )
+                Column(modifier = Modifier.weight(1f)) {
+                    Text(
+                        product.title,
+                        color = ElegantTextPrimary,
+                        fontWeight = FontWeight.Bold,
+                        fontSize = 14.sp
+                    )
+
+                    if (product.description.isNotBlank()) {
+                        Spacer(modifier = Modifier.height(3.dp))
+                        Text(
+                            product.description,
+                            color = ElegantTextSecondary,
+                            fontSize = 11.sp,
+                            maxLines = 2,
+                            lineHeight = 15.sp
+                        )
+                    }
+                }
             }
 
             Spacer(modifier = Modifier.height(10.dp))
@@ -481,6 +504,7 @@ private fun ProductEditDialog(
     var stock by remember { mutableStateOf(initialProduct?.stockQuantity?.toString() ?: "10") }
     var selectedCatId by remember { mutableStateOf(initialProduct?.categoryId ?: categories.firstOrNull()?.id) }
     var selectedSupId by remember { mutableStateOf(initialProduct?.supplierId ?: suppliers.firstOrNull()?.id) }
+    var imageUrl by remember { mutableStateOf(initialProduct?.primaryImageUrl ?: "") }
 
     AlertDialog(
         onDismissRequest = onDismiss,
@@ -510,7 +534,7 @@ private fun ProductEditDialog(
                     value = description,
                     onValueChange = { description = it },
                     label = { Text("Description") },
-                    maxLines = 3,
+                    maxLines = 2,
                     modifier = Modifier.fillMaxWidth()
                 )
 
@@ -538,39 +562,86 @@ private fun ProductEditDialog(
                     keyboardOptions = KeyboardOptions(keyboardType = KeyboardType.Number),
                     modifier = Modifier.fillMaxWidth()
                 )
-            }
-        },
-        confirmButton = {
-            Button(
-                onClick = {
-                    if (title.isNotBlank()) {
-                        val product = (initialProduct ?: ProductEntity(
-                            id = "prod-${UUID.randomUUID().toString().take(8)}",
-                            title = title,
-                            currency = defaultCurrency
-                        )).copy(
-                            title = title,
-                            description = description,
-                            sellingPrice = sellPrice.toDoubleOrNull(),
-                            purchasePrice = buyPrice.toDoubleOrNull(),
-                            stockQuantity = stock.toIntOrNull() ?: 0,
-                            categoryId = selectedCatId,
-                            supplierId = selectedSupId,
-                            currency = initialProduct?.currency ?: defaultCurrency,
-                            updatedAt = System.currentTimeMillis()
-                        )
-                        onSave(product)
+
+                OutlinedTextField(
+                    value = imageUrl,
+                    onValueChange = { imageUrl = it },
+                    label = { Text("URL Photo / Image (Optionnel)") },
+                    singleLine = true,
+                    modifier = Modifier.fillMaxWidth()
+                )
+
+                if (categories.isNotEmpty()) {
+                    Text("Catégorie & Routage IA :", color = ElegantTextSecondary, fontSize = 11.sp)
+                    Row(
+                        modifier = Modifier.fillMaxWidth().horizontalScroll(rememberScrollState()),
+                        horizontalArrangement = Arrangement.spacedBy(6.dp)
+                    ) {
+                        categories.forEach { cat ->
+                            val isSelected = selectedCatId == cat.id
+                            Surface(
+                                shape = RoundedCornerShape(8.dp),
+                                color = if (isSelected) ElegantPurpleAccent.copy(alpha = 0.2f) else ElegantDarkBg,
+                                border = BorderStroke(1.dp, if (isSelected) ElegantPurpleAccent else ElegantDarkBorder),
+                                modifier = Modifier.clickable { selectedCatId = cat.id }
+                            ) {
+                                Text(
+                                    cat.name,
+                                    color = if (isSelected) ElegantPurpleAccent else ElegantTextSecondary,
+                                    fontSize = 11.sp,
+                                    fontWeight = if (isSelected) FontWeight.Bold else FontWeight.Normal,
+                                    modifier = Modifier.padding(horizontal = 10.dp, vertical = 6.dp)
+                                )
+                            }
+                        }
                     }
-                },
-                colors = ButtonDefaults.buttonColors(containerColor = ElegantPurpleAccent)
-            ) {
-                Text("Enregistrer", color = Color.White)
+                }
+
+                Spacer(modifier = Modifier.height(12.dp))
+
+                // Bouton Enregistrer situé en bas des paramètres
+                Button(
+                    onClick = {
+                        if (title.isNotBlank()) {
+                            val product = (initialProduct ?: ProductEntity(
+                                id = "prod-${UUID.randomUUID().toString().take(8)}",
+                                title = title,
+                                currency = defaultCurrency
+                            )).copy(
+                                title = title,
+                                description = description,
+                                sellingPrice = sellPrice.toDoubleOrNull(),
+                                purchasePrice = buyPrice.toDoubleOrNull(),
+                                stockQuantity = stock.toIntOrNull() ?: 0,
+                                categoryId = selectedCatId,
+                                supplierId = selectedSupId,
+                                primaryImageUrl = imageUrl.ifBlank { null },
+                                currency = initialProduct?.currency ?: defaultCurrency,
+                                updatedAt = System.currentTimeMillis()
+                            )
+                            onSave(product)
+                        }
+                    },
+                    colors = ButtonDefaults.buttonColors(containerColor = ElegantPurpleAccent),
+                    shape = RoundedCornerShape(10.dp),
+                    modifier = Modifier
+                        .fillMaxWidth()
+                        .height(48.dp)
+                        .testTag("save_product_button")
+                ) {
+                    Icon(Icons.Default.Save, contentDescription = null, modifier = Modifier.size(16.dp))
+                    Spacer(modifier = Modifier.width(8.dp))
+                    Text("Enregistrer le Produit", color = Color.White, fontWeight = FontWeight.Bold)
+                }
+
+                TextButton(
+                    onClick = onDismiss,
+                    modifier = Modifier.fillMaxWidth()
+                ) {
+                    Text("Annuler", color = ElegantTextSecondary)
+                }
             }
         },
-        dismissButton = {
-            TextButton(onClick = onDismiss) {
-                Text("Annuler", color = ElegantTextSecondary)
-            }
-        }
+        confirmButton = {}
     )
 }

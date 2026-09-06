@@ -27,6 +27,20 @@ data class ProductEntity(
 )
 
 /**
+ * Entité Média rattachée à un produit e-commerce (images, vidéos, albums captés)
+ */
+@Entity(tableName = "ecommerce_product_media")
+data class ProductMediaEntity(
+    @PrimaryKey val id: String = java.util.UUID.randomUUID().toString(),
+    val productId: String,
+    val mediaUrl: String,
+    val localPath: String? = null,
+    val mediaType: String = "photo", // photo, video, document
+    val sortOrder: Int = 0,
+    val createdAt: Long = System.currentTimeMillis()
+)
+
+/**
  * Entité Catégorie de produits
  */
 @Entity(tableName = "ecommerce_categories")

@@ -303,40 +303,46 @@ fun AffiliatesScreen(
                         singleLine = true,
                         modifier = Modifier.fillMaxWidth()
                     )
-                }
-            },
-            confirmButton = {
-                Button(
-                    onClick = {
-                        if (name.isNotBlank() && refCode.isNotBlank()) {
-                            val aff = (initial ?: AffiliateEntity(
-                                id = "aff-${UUID.randomUUID().toString().take(8)}",
-                                fullName = name,
-                                referralCode = refCode.uppercase().trim()
-                            )).copy(
-                                fullName = name,
-                                referralCode = refCode.uppercase().trim(),
-                                commissionRatePercent = rateStr.toDoubleOrNull() ?: 10.0,
-                                phone = phone
-                            )
-                            viewModel.saveAffiliate(aff)
+
+                    Spacer(modifier = Modifier.height(10.dp))
+
+                    Button(
+                        onClick = {
+                            if (name.isNotBlank() && refCode.isNotBlank()) {
+                                val aff = (initial ?: AffiliateEntity(
+                                    id = "aff-${UUID.randomUUID().toString().take(8)}",
+                                    fullName = name,
+                                    referralCode = refCode.uppercase().trim()
+                                )).copy(
+                                    fullName = name,
+                                    referralCode = refCode.uppercase().trim(),
+                                    commissionRatePercent = rateStr.toDoubleOrNull() ?: 10.0,
+                                    phone = phone
+                                )
+                                viewModel.saveAffiliate(aff)
+                                showAddDialog = false
+                                affiliateToEdit = null
+                            }
+                        },
+                        colors = ButtonDefaults.buttonColors(containerColor = ElegantPurpleAccent),
+                        shape = RoundedCornerShape(10.dp),
+                        modifier = Modifier.fillMaxWidth().height(48.dp)
+                    ) {
+                        Text("Enregistrer l'Affilié", color = Color.White, fontWeight = FontWeight.Bold)
+                    }
+
+                    TextButton(
+                        onClick = {
                             showAddDialog = false
                             affiliateToEdit = null
-                        }
-                    },
-                    colors = ButtonDefaults.buttonColors(containerColor = ElegantPurpleAccent)
-                ) {
-                    Text("Enregistrer", color = Color.White)
+                        },
+                        modifier = Modifier.fillMaxWidth()
+                    ) {
+                        Text("Annuler", color = ElegantTextSecondary)
+                    }
                 }
             },
-            dismissButton = {
-                TextButton(onClick = {
-                    showAddDialog = false
-                    affiliateToEdit = null
-                }) {
-                    Text("Annuler", color = ElegantTextSecondary)
-                }
-            }
+            confirmButton = {}
         )
     }
 }

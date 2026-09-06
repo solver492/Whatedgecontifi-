@@ -311,45 +311,51 @@ fun PriceContactsScreen(
                         singleLine = true,
                         modifier = Modifier.fillMaxWidth()
                     )
-                }
-            },
-            confirmButton = {
-                Button(
-                    onClick = {
-                        if (supplierName.isNotBlank() && contactPerson.isNotBlank()) {
-                            val item = (initial ?: PriceContactEntity(
-                                id = "pct-${UUID.randomUUID().toString().take(8)}",
-                                supplierId = "sup-custom",
-                                supplierName = supplierName,
-                                contactPerson = contactPerson,
-                                contactPhone = contactPhone
-                            )).copy(
-                                supplierName = supplierName,
-                                contactPerson = contactPerson,
-                                contactPhone = contactPhone,
-                                negotiatedDiscountPercent = discountStr.toDoubleOrNull() ?: 0.0,
-                                minOrderQuantity = minQtyStr.toIntOrNull() ?: 1,
-                                paymentTerms = paymentTerms,
-                                specialNotes = notes
-                            )
-                            viewModel.savePriceContact(item)
+
+                    Spacer(modifier = Modifier.height(10.dp))
+
+                    Button(
+                        onClick = {
+                            if (supplierName.isNotBlank() && contactPerson.isNotBlank()) {
+                                val item = (initial ?: PriceContactEntity(
+                                    id = "pct-${UUID.randomUUID().toString().take(8)}",
+                                    supplierId = "sup-custom",
+                                    supplierName = supplierName,
+                                    contactPerson = contactPerson,
+                                    contactPhone = contactPhone
+                                )).copy(
+                                    supplierName = supplierName,
+                                    contactPerson = contactPerson,
+                                    contactPhone = contactPhone,
+                                    negotiatedDiscountPercent = discountStr.toDoubleOrNull() ?: 0.0,
+                                    minOrderQuantity = minQtyStr.toIntOrNull() ?: 1,
+                                    paymentTerms = paymentTerms,
+                                    specialNotes = notes
+                                )
+                                viewModel.savePriceContact(item)
+                                showAddDialog = false
+                                contactToEdit = null
+                            }
+                        },
+                        colors = ButtonDefaults.buttonColors(containerColor = ElegantPurpleAccent),
+                        shape = RoundedCornerShape(10.dp),
+                        modifier = Modifier.fillMaxWidth().height(48.dp)
+                    ) {
+                        Text("Enregistrer le Contact Tarif", color = Color.White, fontWeight = FontWeight.Bold)
+                    }
+
+                    TextButton(
+                        onClick = {
                             showAddDialog = false
                             contactToEdit = null
-                        }
-                    },
-                    colors = ButtonDefaults.buttonColors(containerColor = ElegantPurpleAccent)
-                ) {
-                    Text("Enregistrer", color = Color.White)
+                        },
+                        modifier = Modifier.fillMaxWidth()
+                    ) {
+                        Text("Annuler", color = ElegantTextSecondary)
+                    }
                 }
             },
-            dismissButton = {
-                TextButton(onClick = {
-                    showAddDialog = false
-                    contactToEdit = null
-                }) {
-                    Text("Annuler", color = ElegantTextSecondary)
-                }
-            }
+            confirmButton = {}
         )
     }
 }
