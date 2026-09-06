@@ -1,6 +1,9 @@
 package com.example.domain.baileys
 
 import com.example.data.local.AppDatabase
+import com.example.data.local.entity.TelegramLogEntity
+import com.example.data.local.entity.TelegramMessageEntity
+import com.example.domain.telegram.TelegramBridgeScript
 import kotlinx.coroutines.CoroutineScope
 import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.Job
@@ -325,6 +328,98 @@ class LocalNodeBridgeServer(
                         sendHttpResponse(output, 200, "OK", "application/json", responseJson.toString())
                     } catch (e: Exception) {
                         log(LogType.ERROR, "Erreur événement : ${e.message}")
+                        sendHttpResponse(output, 400, "Bad Request", "application/json", "{\"error\":\"${e.message}\"}")
+                    }
+                }
+
+                // 5. GET /telegram_bridge.py (Serve Python Telethon Bridge script directly to Termux)
+                (path.startsWith("/telegram_bridge.py") || path.startsWith("/api/telegram_bridge.py")) && method.equals("GET", ignoreCase = true) -> {
+                    sendHttpResponse(output, 200, "OK", "text/x-python; charset=utf-8", TelegramBridgeScript.PYTHON_BRIDGE_SCRIPT)
+                }
+
+                // 6. POST /api/telegram/message (Incoming message from Telethon Listener in Termux)
+                path.startsWith("/api/telegram/message") && method.equals("POST", ignoreCase = true) -> {
+                    try {
+                        val json = JSONObject(bodyStr)
+                        val channelId = json.optLong("channel_id", 0L)
+                        val channelTitle = json.optString("channel_title", "Canal Telegram")
+                        val channelUsername = json.optString("channel_username", "")
+                        val messageId = json.optLong("message_id", System.currentTimeMillis())
+                        val senderId = json.optLong("sender_id", 0L)
+                        val senderName = json.optString("sender_name", "Auteur")
+                        val text = json.optString("text", "")
+                        val mediaType = json.optString("media_type", "none")
+                        val mediaUrl = json.optString("media_url", "").ifBlank { null }
+                        val timestamp = json.optLong("timestamp", System.currentTimeMillis())
+
+                        val msgEntityId = "${channelId}_$messageId"
+                        val msgEntity = TelegramMessageEntity(
+                            id = msgEntityId,
+                            channelId = channelId,
+                            channelTitle = channelTitle,
+                            channelUsername = channelUsername,
+                            messageId = messageId,
+                            senderId = senderId,
+                            senderName = senderName,
+                            text = text,
+                            mediaType = mediaType,
+                            mediaUrl = mediaUrl,
+                            timestamp = timestamp,
+                            rawJson = bodyStr
+                        )
+
+                        // 1. Insert into Room Database
+                        database.telegramDao().insertMessage(msgEntity)
+
+                        // 2. Update channel metadata
+                        database.telegramDao().updateChannelLastMessage(
+                            channelId = channelId,
+                            text = if (text.isNotBlank()) text else "[Média: $mediaType]",
+                            timestamp = timestamp
+                        )
+
+                        // 3. Log into Telegram Logs & Bridge Console
+                        val logText = "[$channelTitle] $senderName: ${text.take(80)}${if (text.length > 80) "..." else ""}"
+                        database.telegramDao().insertLog(
+                            TelegramLogEntity(
+                                level = "INCOMING",
+                                source = "Telethon",
+                                message = logText
+                            )
+                        )
+                        log(LogType.INCOMING, "[Telegram] $logText")
+
+                        val responseJson = JSONObject().apply {
+                            put("success", true)
+                            put("messageId", msgEntityId)
+                            put("status", "RECEIVED_AND_SAVED")
+                        }
+                        sendHttpResponse(output, 200, "OK", "application/json", responseJson.toString())
+                    } catch (e: Exception) {
+                        log(LogType.ERROR, "Erreur réception message Telegram : ${e.message}")
+                        sendHttpResponse(output, 400, "Bad Request", "application/json", "{\"error\":\"${e.message}\"}")
+                    }
+                }
+
+                // 7. POST /api/telegram/log (Live log push from Termux Telethon Bridge)
+                path.startsWith("/api/telegram/log") && method.equals("POST", ignoreCase = true) -> {
+                    try {
+                        val json = JSONObject(bodyStr)
+                        val level = json.optString("level", "INFO")
+                        val source = json.optString("source", "Telethon")
+                        val message = json.optString("message", "")
+
+                        database.telegramDao().insertLog(
+                            TelegramLogEntity(
+                                level = level,
+                                source = source,
+                                message = message
+                            )
+                        )
+                        log(LogType.INFO, "[Telethon Live] $message")
+
+                        sendHttpResponse(output, 200, "OK", "application/json", "{\"success\":true}")
+                    } catch (e: Exception) {
                         sendHttpResponse(output, 400, "Bad Request", "application/json", "{\"error\":\"${e.message}\"}")
                     }
                 }

@@ -9,22 +9,23 @@ pkg update -y && pkg install python -y && pip install telethon aiohttp
     """.trimIndent()
 
     val LAUNCH_COMMAND = """
-python -c "import urllib.request; exec(urllib.request.urlopen('http://127.0.0.1:8081/telegram_bridge.py').read().decode())"
+curl -sSL -o telegram_bridge.py http://127.0.0.1:8081/telegram_bridge.py && python telegram_bridge.py
     """.trimIndent()
 
     val COMPLETE_TERMUX_COMMAND = """
-pkg update -y && pkg install python -y && pip install telethon aiohttp && curl -sSL -o telegram_bridge.py http://127.0.0.1:8080/telegram_bridge.py || true && python telegram_bridge.py
+pkg update -y && pkg install python -y && pip install telethon aiohttp && curl -sSL -o telegram_bridge.py http://127.0.0.1:8081/telegram_bridge.py && python telegram_bridge.py
     """.trimIndent()
 
     val PYTHON_BRIDGE_SCRIPT = """# =========================================================================
 # AI Edge - Telegram Telethon Bridge for Termux / Local Python Server
-# Port d'écoute HTTP : 8088
+# Port d'écoute HTTP : 8088 | Relais vers Android : 8081 / 8080 / 8082
 # =========================================================================
 
 import asyncio
 import json
 import os
 import sys
+import aiohttp
 from aiohttp import web
 from telethon import TelegramClient, events
 from telethon.tl.types import Channel, Chat
@@ -34,12 +35,82 @@ SESSION_NAME = os.environ.get('TG_SESSION', 'telethon_session')
 
 client = None
 phone_code_hash_cache = {}
+monitored_channels = set()
+listener_attached = False
+
 app_state = {
     "api_id": None,
     "api_hash": None,
     "phone": None,
     "status": "DISCONNECTED"
 }
+
+async def forward_to_android(endpoint, payload):
+    for p in [8081, 8080, 8082]:
+        try:
+            async with aiohttp.ClientSession() as session:
+                async with session.post(f"http://127.0.0.1:{p}{endpoint}", json=payload, timeout=aiohttp.ClientTimeout(total=3.0)) as resp:
+                    if resp.status in [200, 201, 204]:
+                        return True
+        except Exception:
+            pass
+    return False
+
+async def log_to_android(level, message, source="Telethon"):
+    print(f"[{level}] {message}", flush=True)
+    await forward_to_android("/api/telegram/log", {
+        "level": level,
+        "source": source,
+        "message": message
+    })
+
+def attach_telethon_listener(tg):
+    global listener_attached
+    if listener_attached:
+        return
+    
+    @tg.on(events.NewMessage)
+    async def new_message_handler(event):
+        try:
+            chat = await event.get_chat()
+            chat_id = event.chat_id
+            
+            # Filtre de surveillance si spécifié
+            if monitored_channels and chat_id not in monitored_channels:
+                return
+
+            title = getattr(chat, 'title', '') or getattr(chat, 'first_name', 'Fournisseur Telegram')
+            username = getattr(chat, 'username', '') or ''
+            text = event.raw_text or ''
+            
+            media_type = "none"
+            if event.photo:
+                media_type = "photo"
+            elif event.document:
+                media_type = "document"
+
+            sender = await event.get_sender()
+            sender_name = getattr(sender, 'first_name', '') or title
+
+            payload = {
+                "channel_id": chat_id,
+                "channel_title": title,
+                "channel_username": username,
+                "message_id": event.id,
+                "sender_id": event.sender_id or 0,
+                "sender_name": sender_name,
+                "text": text,
+                "media_type": media_type,
+                "timestamp": int(event.date.timestamp() * 1000)
+            }
+
+            await log_to_android("INCOMING", f"Message reçu sur [{title}]: {text[:80]}...")
+            await forward_to_android("/api/telegram/message", payload)
+        except Exception as e:
+            await log_to_android("ERROR", f"Erreur traitement NewMessage: {str(e)}")
+
+    listener_attached = True
+    print("✅ Écouteur de messages Telethon attaché avec succès.")
 
 async def get_client(api_id, api_hash):
     global client
@@ -48,8 +119,10 @@ async def get_client(api_id, api_hash):
             await client.disconnect()
         client = TelegramClient(SESSION_NAME, int(api_id), str(api_hash))
         await client.connect()
+        attach_telethon_listener(client)
     elif not client.is_connected():
         await client.connect()
+        attach_telethon_listener(client)
     return client
 
 async def handle_status(request):
@@ -68,6 +141,7 @@ async def handle_status(request):
                     "username": me.username or "",
                     "phone": me.phone or ""
                 }
+                attach_telethon_listener(client)
         except Exception as e:
             is_auth = False
             
@@ -76,6 +150,7 @@ async def handle_status(request):
         "port": PORT,
         "authenticated": is_auth,
         "status": "CONNECTED" if is_auth else "READY",
+        "monitored_channels_count": len(monitored_channels),
         "user": user_data
     })
 
@@ -186,6 +261,39 @@ async def handle_disconnect(request):
     except Exception as e:
         return web.json_response({"success": False, "error": str(e)}, status=500)
 
+async def handle_monitor_channels(request):
+    try:
+        data = await request.json()
+        channel_ids = data.get("channel_ids", [])
+        global monitored_channels
+        monitored_channels = set(int(c) for c in channel_ids)
+        return web.json_response({
+            "success": True,
+            "monitored_count": len(monitored_channels)
+        })
+    except Exception as e:
+        return web.json_response({"success": False, "error": str(e)}, status=500)
+
+async def handle_simulate_incoming(request):
+    try:
+        data = await request.json() if request.can_read_body else {}
+        fake_msg = {
+            "channel_id": data.get("channel_id", -1001928374821),
+            "channel_title": data.get("channel_title", "📦 Fournisseurs Drop & Gros (Paris/Dubai)"),
+            "channel_username": data.get("channel_username", "grossistes_dropship_officiel"),
+            "message_id": int(asyncio.get_event_loop().time() * 1000),
+            "sender_id": 99887766,
+            "sender_name": "Grossiste Dubai",
+            "text": data.get("text", "🔥 Arrivage Immédiat : Montre connectée AMOLED IP68 étanche avec 3 bracelets. Prix d'achat: 14.50€ | Prix conseillé: 49.90€. Stock Paris: 250 pièces dispo."),
+            "media_type": data.get("media_type", "photo"),
+            "timestamp": int(asyncio.get_event_loop().time() * 1000)
+        }
+        await log_to_android("INCOMING", f"[Simulation] Message arrivage: {fake_msg['text'][:60]}...")
+        ok = await forward_to_android("/api/telegram/message", fake_msg)
+        return web.json_response({"success": ok, "message": fake_msg})
+    except Exception as e:
+        return web.json_response({"success": False, "error": str(e)}, status=500)
+
 def init_app():
     app = web.Application()
     app.router.add_get('/', lambda r: web.Response(text="Telegram Telethon Bridge Active"))
@@ -193,6 +301,8 @@ def init_app():
     app.router.add_post('/auth/send-code', handle_send_code)
     app.router.add_post('/auth/sign-in', handle_sign_in)
     app.router.add_get('/channels', handle_get_channels)
+    app.router.add_post('/channels/monitor', handle_monitor_channels)
+    app.router.add_post('/simulate/incoming', handle_simulate_incoming)
     app.router.add_post('/disconnect', handle_disconnect)
     return app
 

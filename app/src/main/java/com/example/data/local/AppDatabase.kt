@@ -25,6 +25,8 @@ import com.example.data.local.entity.ShippingAgencyEntity
 import com.example.data.local.entity.SupplierEntity
 import com.example.data.local.entity.TelegramAccountEntity
 import com.example.data.local.entity.TelegramChannelEntity
+import com.example.data.local.entity.TelegramLogEntity
+import com.example.data.local.entity.TelegramMessageEntity
 import com.example.data.local.entity.WebhookConfigEntity
 import com.example.data.local.entity.WhatsAppInstanceEntity
 import com.example.data.local.entity.WhatsAppMessageEntity
@@ -43,6 +45,8 @@ import java.util.UUID
         WebhookConfigEntity::class,
         TelegramAccountEntity::class,
         TelegramChannelEntity::class,
+        TelegramMessageEntity::class,
+        TelegramLogEntity::class,
         ProductEntity::class,
         CategoryEntity::class,
         SupplierEntity::class,
@@ -51,7 +55,7 @@ import java.util.UUID
         AffiliateEntity::class,
         OrderEntity::class
     ],
-    version = 4,
+    version = 5,
     exportSchema = false
 )
 abstract class AppDatabase : RoomDatabase() {

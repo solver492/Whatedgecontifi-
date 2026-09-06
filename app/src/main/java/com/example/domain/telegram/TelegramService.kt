@@ -7,7 +7,10 @@ import android.util.Log
 import com.example.data.local.AppDatabase
 import com.example.data.local.entity.TelegramAccountEntity
 import com.example.data.local.entity.TelegramChannelEntity
+import com.example.data.local.entity.TelegramLogEntity
+import com.example.data.local.entity.TelegramMessageEntity
 import kotlinx.coroutines.Dispatchers
+import kotlinx.coroutines.flow.Flow
 import kotlinx.coroutines.withContext
 import org.json.JSONArray
 import org.json.JSONObject
@@ -397,5 +400,86 @@ class TelegramService(
         } catch (e: Exception) {
             Log.e(TAG, "Impossible d'ouvrir Termux: ${e.message}")
         }
+    }
+
+    fun getMessagesFlow(): Flow<List<TelegramMessageEntity>> {
+        return database.telegramDao().getAllMessages()
+    }
+
+    fun getLogsFlow(): Flow<List<TelegramLogEntity>> {
+        return database.telegramDao().getRecentLogs()
+    }
+
+    suspend fun logEvent(level: String, message: String, source: String = "Telethon") {
+        database.telegramDao().insertLog(
+            TelegramLogEntity(
+                level = level,
+                source = source,
+                message = message
+            )
+        )
+    }
+
+    suspend fun deleteMessage(id: String) {
+        database.telegramDao().deleteMessage(id)
+    }
+
+    suspend fun clearAllMessages() {
+        database.telegramDao().clearAllMessages()
+    }
+
+    suspend fun clearLogs() {
+        database.telegramDao().clearLogs()
+    }
+
+    suspend fun simulateIncomingSupplierMessage(
+        channelTitle: String? = null,
+        customText: String? = null
+    ): TelegramMessageEntity = withContext(Dispatchers.IO) {
+        val channels = database.telegramDao().getChannelsByAccount("default")
+        val sampleSuppliers = listOf(
+            Triple(-1001928374821L, "📦 Fournisseurs Drop & Gros (Paris/Dubai)", "grossistes_dropship_officiel"),
+            Triple(-1001839201948L, "🔥 Nouveautés Produits Tendances 2026", "trends_ecom_vip"),
+            Triple(-1001748291039L, "🏷️ Déstockage Direct Import", "destock_france_direct")
+        )
+        val selected = sampleSuppliers.random()
+        val chId = selected.first
+        val title = channelTitle ?: selected.second
+        val username = selected.third
+
+        val sampleTexts = listOf(
+            "🔥 ARRIVAGE EXCLUSIF : Montre Connectée Ultra Series 9 avec 3 bracelets silicone & métal. Prix grossiste : 14.50€/u (min 10 pcs). Prix revente conseillé : 49.90€. Stock disponible Paris : 350 unités.",
+            "🎧 NOUVEAU : Écouteurs Pro Sans Fil avec réduction active de bruit (ANC 35dB), boîtier transparent cyberpunk. Prix direct usine : 8.20€/u. PVC : 29.90€. Expédition 24h.",
+            "💡 FLASH STOCK : Mini Vidéoprojecteur Portable 4K Android 11 Wi-Fi 6. Rotation 180°. Prix achat : 28.00€/u. PVC : 89.00€. Idéal TikTok Shop / Dropshipping.",
+            "⚡ TOP VENTE : Valise de voyage cabine rigide polycarbonate ultra-légère avec serrure TSA intégrée. Achat : 22.50€ | Revente : 69.90€. Entrepôt Lyon.",
+            "💄 PACK BEAUTÉ : Brosse soufflante 5-en-1 avec accessoires céramique et technologie ionique. Prix fournisseur : 11.90€. Revente : 39.90€."
+        )
+
+        val text = customText ?: sampleTexts.random()
+        val msgId = System.currentTimeMillis()
+        val entityId = "${chId}_$msgId"
+
+        val entity = TelegramMessageEntity(
+            id = entityId,
+            channelId = chId,
+            channelTitle = title,
+            channelUsername = username,
+            messageId = msgId,
+            senderId = 99283711L,
+            senderName = "Fournisseur Officiel",
+            text = text,
+            mediaType = "photo",
+            mediaUrl = "https://picsum.photos/400/300?random=$msgId",
+            timestamp = msgId
+        )
+
+        // Save message & update channel
+        database.telegramDao().insertMessage(entity)
+        database.telegramDao().updateChannelLastMessage(chId, text, msgId)
+
+        // Log
+        logEvent("INCOMING", "[$title] Arrivage fournisseur reçu: ${text.take(65)}...")
+
+        entity
     }
 }

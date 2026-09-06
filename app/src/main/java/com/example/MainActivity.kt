@@ -14,9 +14,11 @@ import androidx.compose.foundation.layout.Box
 import androidx.compose.foundation.layout.Column
 import androidx.compose.foundation.layout.Row
 import androidx.compose.foundation.layout.Spacer
+import androidx.compose.foundation.layout.WindowInsets
 import androidx.compose.foundation.layout.fillMaxSize
 import androidx.compose.foundation.layout.fillMaxWidth
 import androidx.compose.foundation.layout.height
+import androidx.compose.foundation.layout.navigationBarsPadding
 import androidx.compose.foundation.layout.padding
 import androidx.compose.foundation.layout.size
 import androidx.compose.foundation.layout.width
@@ -59,6 +61,7 @@ import androidx.compose.material3.Text
 import androidx.compose.material3.TopAppBar
 import androidx.compose.material3.TopAppBarDefaults
 import androidx.compose.runtime.Composable
+import androidx.compose.runtime.LaunchedEffect
 import androidx.compose.runtime.collectAsState
 import androidx.compose.runtime.getValue
 import androidx.compose.runtime.mutableIntStateOf
@@ -131,6 +134,10 @@ fun MainAppScreen(viewModel: MainViewModel) {
     var secondaryTabIndex by remember { mutableIntStateOf(0) }
     // activeNavSet: 0 = Main, 1 = Secondary
     var activeNavSet by remember { mutableIntStateOf(0) }
+
+    LaunchedEffect(navBarPagerState.currentPage) {
+        activeNavSet = navBarPagerState.currentPage
+    }
 
     var selectedNetworkChannel by remember { mutableIntStateOf(0) } // 0 = WhatsApp, 1 = Telegram
     var simulatorTargetInstanceId by remember { mutableStateOf<String?>(null) }
@@ -223,6 +230,84 @@ fun MainAppScreen(viewModel: MainViewModel) {
                 )
                 HorizontalDivider(thickness = 1.dp, color = ElegantDarkBorder)
 
+                // Sélecteur d'espace de travail : Agent Core (5 modules) ou Commerce & Telegram (8 modules)
+                Row(
+                    modifier = Modifier
+                        .fillMaxWidth()
+                        .background(ElegantDarkSurface)
+                        .padding(horizontal = 14.dp, vertical = 6.dp),
+                    horizontalArrangement = Arrangement.spacedBy(8.dp)
+                ) {
+                    val isCore = (activeNavSet == 0)
+                    Surface(
+                        shape = RoundedCornerShape(10.dp),
+                        color = if (isCore) ElegantPurpleAccent.copy(alpha = 0.22f) else ElegantDarkBg,
+                        border = BorderStroke(1.dp, if (isCore) ElegantPurpleAccent else ElegantDarkBorder),
+                        modifier = Modifier
+                            .weight(1f)
+                            .clickable {
+                                activeNavSet = 0
+                                coroutineScope.launch { navBarPagerState.animateScrollToPage(0) }
+                            }
+                            .testTag("switch_to_agent_core")
+                    ) {
+                        Row(
+                            modifier = Modifier.padding(vertical = 7.dp),
+                            horizontalArrangement = Arrangement.Center,
+                            verticalAlignment = Alignment.CenterVertically
+                        ) {
+                            Icon(
+                                Icons.Default.Psychology,
+                                contentDescription = null,
+                                tint = if (isCore) ElegantPurpleAccent else ElegantTextSecondary,
+                                modifier = Modifier.size(16.dp)
+                            )
+                            Spacer(modifier = Modifier.width(6.dp))
+                            Text(
+                                "Agent Core (5)",
+                                color = if (isCore) ElegantTextPrimary else ElegantTextSecondary,
+                                fontWeight = if (isCore) FontWeight.Bold else FontWeight.Normal,
+                                fontSize = 11.sp
+                            )
+                        }
+                    }
+
+                    val isCommerce = (activeNavSet == 1)
+                    Surface(
+                        shape = RoundedCornerShape(10.dp),
+                        color = if (isCommerce) Color(0xFF2AABEE).copy(alpha = 0.22f) else ElegantDarkBg,
+                        border = BorderStroke(1.dp, if (isCommerce) Color(0xFF2AABEE) else ElegantDarkBorder),
+                        modifier = Modifier
+                            .weight(1f)
+                            .clickable {
+                                activeNavSet = 1
+                                coroutineScope.launch { navBarPagerState.animateScrollToPage(1) }
+                            }
+                            .testTag("switch_to_commerce")
+                    ) {
+                        Row(
+                            modifier = Modifier.padding(vertical = 7.dp),
+                            horizontalArrangement = Arrangement.Center,
+                            verticalAlignment = Alignment.CenterVertically
+                        ) {
+                            Icon(
+                                Icons.Default.Store,
+                                contentDescription = null,
+                                tint = if (isCommerce) Color(0xFF2AABEE) else ElegantTextSecondary,
+                                modifier = Modifier.size(16.dp)
+                            )
+                            Spacer(modifier = Modifier.width(6.dp))
+                            Text(
+                                "Commerce & Telegram (8)",
+                                color = if (isCommerce) ElegantTextPrimary else ElegantTextSecondary,
+                                fontWeight = if (isCommerce) FontWeight.Bold else FontWeight.Normal,
+                                fontSize = 11.sp
+                            )
+                        }
+                    }
+                }
+                HorizontalDivider(thickness = 1.dp, color = ElegantDarkBorder)
+
                 // Secondary Channel Selector when on Instances Tab (Barre 1, Tab 0)
                 if (activeNavSet == 0 && currentTabIndex == 0) {
                     Row(
@@ -295,200 +380,159 @@ fun MainAppScreen(viewModel: MainViewModel) {
             }
         },
         bottomBar = {
-            Column(modifier = Modifier.background(ElegantDarkSurface)) {
-                // Barre d'indication du swipe horizontal avec capsules de bascule
-                Row(
+            Surface(
+                color = ElegantDarkSurface,
+                modifier = Modifier.fillMaxWidth(),
+                border = BorderStroke(1.dp, ElegantDarkBorder)
+            ) {
+                Column(
                     modifier = Modifier
                         .fillMaxWidth()
-                        .padding(horizontal = 16.dp, vertical = 5.dp),
-                    horizontalArrangement = Arrangement.SpaceBetween,
-                    verticalAlignment = Alignment.CenterVertically
+                        .navigationBarsPadding()
                 ) {
-                    Row(
-                        verticalAlignment = Alignment.CenterVertically,
-                        modifier = Modifier.clickable {
-                            coroutineScope.launch {
-                                val target = if (navBarPagerState.currentPage == 0) 1 else 0
-                                navBarPagerState.animateScrollToPage(target)
+                    HorizontalPager(
+                        state = navBarPagerState,
+                        modifier = Modifier.fillMaxWidth().testTag("navigation_horizontal_pager")
+                    ) { pageIndex ->
+                        if (pageIndex == 0) {
+                            // =============================================================
+                            // BARRE 1 : NAVIGATION ORIGINALE (Instances, Agents, Knowledge, Quantizer, Threads)
+                            // =============================================================
+                            NavigationBar(
+                                containerColor = ElegantDarkSurface,
+                                tonalElevation = 0.dp,
+                                windowInsets = WindowInsets(0, 0, 0, 0),
+                                modifier = Modifier.height(64.dp)
+                            ) {
+                                val navItemColors = NavigationBarItemDefaults.colors(
+                                    selectedIconColor = ElegantPurpleAccent,
+                                    selectedTextColor = ElegantPurpleAccent,
+                                    indicatorColor = ElegantDarkSurfaceVariant,
+                                    unselectedIconColor = ElegantTextSecondary.copy(alpha = 0.7f),
+                                    unselectedTextColor = ElegantTextSecondary.copy(alpha = 0.7f)
+                                )
+
+                                NavigationBarItem(
+                                    selected = (activeNavSet == 0 && currentTabIndex == 0),
+                                    onClick = {
+                                        activeNavSet = 0
+                                        currentTabIndex = 0
+                                    },
+                                    icon = { Icon(Icons.Default.Hub, contentDescription = "Instances") },
+                                    label = { Text("Instances", fontSize = 10.sp, maxLines = 1, softWrap = false, fontWeight = if (activeNavSet == 0 && currentTabIndex == 0) FontWeight.Bold else FontWeight.Normal) },
+                                    colors = navItemColors,
+                                    modifier = Modifier.testTag("tab_instances")
+                                )
+                                NavigationBarItem(
+                                    selected = (activeNavSet == 0 && currentTabIndex == 1),
+                                    onClick = {
+                                        activeNavSet = 0
+                                        currentTabIndex = 1
+                                    },
+                                    icon = { Icon(Icons.Default.SmartToy, contentDescription = "Agents") },
+                                    label = { Text("Agents", fontSize = 10.sp, maxLines = 1, softWrap = false, fontWeight = if (activeNavSet == 0 && currentTabIndex == 1) FontWeight.Bold else FontWeight.Normal) },
+                                    colors = navItemColors,
+                                    modifier = Modifier.testTag("tab_agents")
+                                )
+                                NavigationBarItem(
+                                    selected = (activeNavSet == 0 && currentTabIndex == 2),
+                                    onClick = {
+                                        activeNavSet = 0
+                                        currentTabIndex = 2
+                                    },
+                                    icon = { Icon(Icons.Default.MenuBook, contentDescription = "Knowledge") },
+                                    label = { Text("Knowledge", fontSize = 10.sp, maxLines = 1, softWrap = false, fontWeight = if (activeNavSet == 0 && currentTabIndex == 2) FontWeight.Bold else FontWeight.Normal) },
+                                    colors = navItemColors,
+                                    modifier = Modifier.testTag("tab_knowledge")
+                                )
+                                NavigationBarItem(
+                                    selected = (activeNavSet == 0 && currentTabIndex == 3),
+                                    onClick = {
+                                        activeNavSet = 0
+                                        currentTabIndex = 3
+                                    },
+                                    icon = { Icon(Icons.Default.Memory, contentDescription = "Quantizer") },
+                                    label = { Text("Quantizer", fontSize = 10.sp, maxLines = 1, softWrap = false, fontWeight = if (activeNavSet == 0 && currentTabIndex == 3) FontWeight.Bold else FontWeight.Normal) },
+                                    colors = navItemColors,
+                                    modifier = Modifier.testTag("tab_quantizer")
+                                )
+                                NavigationBarItem(
+                                    selected = (activeNavSet == 0 && currentTabIndex == 4),
+                                    onClick = {
+                                        activeNavSet = 0
+                                        currentTabIndex = 4
+                                    },
+                                    icon = { Icon(Icons.Default.Chat, contentDescription = "Threads") },
+                                    label = { Text("Threads", fontSize = 10.sp, maxLines = 1, softWrap = false, fontWeight = if (activeNavSet == 0 && currentTabIndex == 4) FontWeight.Bold else FontWeight.Normal) },
+                                    colors = navItemColors,
+                                    modifier = Modifier.testTag("tab_simulator")
+                                )
                             }
-                        }
-                    ) {
-                        Icon(
-                            Icons.Default.SwapHoriz,
-                            contentDescription = null,
-                            tint = ElegantTextSecondary,
-                            modifier = Modifier.size(14.dp)
-                        )
-                        Spacer(modifier = Modifier.width(4.dp))
-                        Text(
-                            if (navBarPagerState.currentPage == 0) "Swipe ➔ Commerce & Telegram" else "Swipe ➔ Navigation Principale",
-                            color = ElegantTextSecondary,
-                            fontSize = 10.sp,
-                            fontWeight = FontWeight.Medium
-                        )
-                    }
-
-                    // Indicateur de page (deux points animés)
-                    Row(horizontalArrangement = Arrangement.spacedBy(4.dp)) {
-                        Box(
-                            modifier = Modifier
-                                .size(width = if (navBarPagerState.currentPage == 0) 16.dp else 6.dp, height = 6.dp)
-                                .clip(RoundedCornerShape(3.dp))
-                                .background(if (navBarPagerState.currentPage == 0) ElegantPurpleAccent else ElegantDarkBorder)
-                        )
-                        Box(
-                            modifier = Modifier
-                                .size(width = if (navBarPagerState.currentPage == 1) 16.dp else 6.dp, height = 6.dp)
-                                .clip(RoundedCornerShape(3.dp))
-                                .background(if (navBarPagerState.currentPage == 1) Color(0xFF2AABEE) else ElegantDarkBorder)
-                        )
-                    }
-                }
-
-                HorizontalDivider(thickness = 1.dp, color = ElegantDarkBorder)
-
-                // HorizontalPager pour la BottomBar : Swipe fluide sans écraser l'existant
-                HorizontalPager(
-                    state = navBarPagerState,
-                    modifier = Modifier.fillMaxWidth().testTag("navigation_horizontal_pager")
-                ) { pageIndex ->
-                    if (pageIndex == 0) {
-                        // =============================================================
-                        // BARRE 1 : NAVIGATION ORIGINALE (Instances, Agents, Knowledge, Quantizer, Threads)
-                        // =============================================================
-                        NavigationBar(
-                            containerColor = ElegantDarkSurface,
-                            tonalElevation = 0.dp,
-                            modifier = Modifier.height(64.dp)
-                        ) {
-                            val navItemColors = NavigationBarItemDefaults.colors(
-                                selectedIconColor = ElegantPurpleAccent,
-                                selectedTextColor = ElegantPurpleAccent,
-                                indicatorColor = ElegantDarkSurfaceVariant,
-                                unselectedIconColor = ElegantTextSecondary.copy(alpha = 0.7f),
-                                unselectedTextColor = ElegantTextSecondary.copy(alpha = 0.7f)
+                        } else {
+                            // =============================================================
+                            // BARRE 2 : DEUXIÈME BARRE DEMANDÉE (Swipe horizontal)
+                            // Telegram · Produits · Catégories · Fournisseurs · Contacts & Tarifs · Agences Livraison · Affiliés · Commandes
+                            // =============================================================
+                            val secondaryTabs = listOf(
+                                Triple("Telegram", Icons.Default.Send, 0),
+                                Triple("Produits", Icons.Default.Inventory2, 1),
+                                Triple("Catégories", Icons.Default.Category, 2),
+                                Triple("Fournisseurs", Icons.Default.Store, 3),
+                                Triple("Contacts & Tarifs", Icons.Default.RequestQuote, 4),
+                                Triple("Agences Livraison", Icons.Default.LocalShipping, 5),
+                                Triple("Affiliés", Icons.Default.Group, 6),
+                                Triple("Commandes", Icons.Default.ReceiptLong, 7)
                             )
 
-                            NavigationBarItem(
-                                selected = (activeNavSet == 0 && currentTabIndex == 0),
-                                onClick = {
-                                    activeNavSet = 0
-                                    currentTabIndex = 0
-                                },
-                                icon = { Icon(Icons.Default.Hub, contentDescription = "Instances") },
-                                label = { Text("Instances", fontSize = 10.sp, maxLines = 1, softWrap = false, fontWeight = if (activeNavSet == 0 && currentTabIndex == 0) FontWeight.Bold else FontWeight.Normal) },
-                                colors = navItemColors,
-                                modifier = Modifier.testTag("tab_instances")
-                            )
-                            NavigationBarItem(
-                                selected = (activeNavSet == 0 && currentTabIndex == 1),
-                                onClick = {
-                                    activeNavSet = 0
-                                    currentTabIndex = 1
-                                },
-                                icon = { Icon(Icons.Default.SmartToy, contentDescription = "Agents") },
-                                label = { Text("Agents", fontSize = 10.sp, maxLines = 1, softWrap = false, fontWeight = if (activeNavSet == 0 && currentTabIndex == 1) FontWeight.Bold else FontWeight.Normal) },
-                                colors = navItemColors,
-                                modifier = Modifier.testTag("tab_agents")
-                            )
-                            NavigationBarItem(
-                                selected = (activeNavSet == 0 && currentTabIndex == 2),
-                                onClick = {
-                                    activeNavSet = 0
-                                    currentTabIndex = 2
-                                },
-                                icon = { Icon(Icons.Default.MenuBook, contentDescription = "Knowledge") },
-                                label = { Text("Knowledge", fontSize = 10.sp, maxLines = 1, softWrap = false, fontWeight = if (activeNavSet == 0 && currentTabIndex == 2) FontWeight.Bold else FontWeight.Normal) },
-                                colors = navItemColors,
-                                modifier = Modifier.testTag("tab_knowledge")
-                            )
-                            NavigationBarItem(
-                                selected = (activeNavSet == 0 && currentTabIndex == 3),
-                                onClick = {
-                                    activeNavSet = 0
-                                    currentTabIndex = 3
-                                },
-                                icon = { Icon(Icons.Default.Memory, contentDescription = "Quantizer") },
-                                label = { Text("Quantizer", fontSize = 10.sp, maxLines = 1, softWrap = false, fontWeight = if (activeNavSet == 0 && currentTabIndex == 3) FontWeight.Bold else FontWeight.Normal) },
-                                colors = navItemColors,
-                                modifier = Modifier.testTag("tab_quantizer")
-                            )
-                            NavigationBarItem(
-                                selected = (activeNavSet == 0 && currentTabIndex == 4),
-                                onClick = {
-                                    activeNavSet = 0
-                                    currentTabIndex = 4
-                                },
-                                icon = { Icon(Icons.Default.Chat, contentDescription = "Threads") },
-                                label = { Text("Threads", fontSize = 10.sp, maxLines = 1, softWrap = false, fontWeight = if (activeNavSet == 0 && currentTabIndex == 4) FontWeight.Bold else FontWeight.Normal) },
-                                colors = navItemColors,
-                                modifier = Modifier.testTag("tab_simulator")
-                            )
-                        }
-                    } else {
-                        // =============================================================
-                        // BARRE 2 : DEUXIÈME BARRE DEMANDÉE (Swipe horizontal)
-                        // Telegram · Produits · Catégories · Fournisseurs · Contacts & Tarifs · Agences Livraison · Affiliés · Commandes
-                        // =============================================================
-                        val secondaryTabs = listOf(
-                            Triple("Telegram", Icons.Default.Send, 0),
-                            Triple("Produits", Icons.Default.Inventory2, 1),
-                            Triple("Catégories", Icons.Default.Category, 2),
-                            Triple("Fournisseurs", Icons.Default.Store, 3),
-                            Triple("Contacts & Tarifs", Icons.Default.RequestQuote, 4),
-                            Triple("Agences Livraison", Icons.Default.LocalShipping, 5),
-                            Triple("Affiliés", Icons.Default.Group, 6),
-                            Triple("Commandes", Icons.Default.ReceiptLong, 7)
-                        )
-
-                        ScrollableTabRow(
-                            selectedTabIndex = secondaryTabIndex,
-                            containerColor = ElegantDarkSurface,
-                            contentColor = Color(0xFF2AABEE),
-                            edgePadding = 12.dp,
-                            modifier = Modifier.fillMaxWidth().height(64.dp).testTag("secondary_nav_tab_row"),
-                            indicator = { tabPositions ->
-                                if (secondaryTabIndex < tabPositions.size) {
-                                    TabRowDefaults.SecondaryIndicator(
-                                        modifier = Modifier.tabIndicatorOffset(tabPositions[secondaryTabIndex]),
-                                        color = Color(0xFF2AABEE),
-                                        height = 3.dp
+                            ScrollableTabRow(
+                                selectedTabIndex = secondaryTabIndex,
+                                containerColor = ElegantDarkSurface,
+                                contentColor = Color(0xFF2AABEE),
+                                edgePadding = 12.dp,
+                                modifier = Modifier.fillMaxWidth().height(64.dp).testTag("secondary_nav_tab_row"),
+                                indicator = { tabPositions ->
+                                    if (secondaryTabIndex < tabPositions.size) {
+                                        TabRowDefaults.SecondaryIndicator(
+                                            modifier = Modifier.tabIndicatorOffset(tabPositions[secondaryTabIndex]),
+                                            color = Color(0xFF2AABEE),
+                                            height = 3.dp
+                                        )
+                                    }
+                                }
+                            ) {
+                                secondaryTabs.forEach { (title, icon, index) ->
+                                    val isSelected = (activeNavSet == 1 && secondaryTabIndex == index)
+                                    Tab(
+                                        selected = isSelected,
+                                        onClick = {
+                                            activeNavSet = 1
+                                            secondaryTabIndex = index
+                                        },
+                                        modifier = Modifier.padding(horizontal = 4.dp).testTag("sec_tab_$index"),
+                                        text = {
+                                            Row(
+                                                verticalAlignment = Alignment.CenterVertically,
+                                                horizontalArrangement = Arrangement.Center
+                                            ) {
+                                                Icon(
+                                                    icon,
+                                                    contentDescription = title,
+                                                    tint = if (isSelected) Color(0xFF2AABEE) else ElegantTextSecondary.copy(alpha = 0.7f),
+                                                    modifier = Modifier.size(16.dp)
+                                                )
+                                                Spacer(modifier = Modifier.width(6.dp))
+                                                Text(
+                                                    text = title,
+                                                    fontSize = 11.sp,
+                                                    maxLines = 1,
+                                                    softWrap = false,
+                                                    fontWeight = if (isSelected) FontWeight.Bold else FontWeight.Normal,
+                                                    color = if (isSelected) ElegantTextPrimary else ElegantTextSecondary.copy(alpha = 0.7f)
+                                                )
+                                            }
+                                        }
                                     )
                                 }
-                            }
-                        ) {
-                            secondaryTabs.forEach { (title, icon, index) ->
-                                val isSelected = (activeNavSet == 1 && secondaryTabIndex == index)
-                                Tab(
-                                    selected = isSelected,
-                                    onClick = {
-                                        activeNavSet = 1
-                                        secondaryTabIndex = index
-                                    },
-                                    modifier = Modifier.padding(horizontal = 4.dp).testTag("sec_tab_$index"),
-                                    text = {
-                                        Row(
-                                            verticalAlignment = Alignment.CenterVertically,
-                                            horizontalArrangement = Arrangement.Center
-                                        ) {
-                                            Icon(
-                                                icon,
-                                                contentDescription = title,
-                                                tint = if (isSelected) Color(0xFF2AABEE) else ElegantTextSecondary.copy(alpha = 0.7f),
-                                                modifier = Modifier.size(16.dp)
-                                            )
-                                            Spacer(modifier = Modifier.width(6.dp))
-                                            Text(
-                                                text = title,
-                                                fontSize = 11.sp,
-                                                maxLines = 1,
-                                                softWrap = false,
-                                                fontWeight = if (isSelected) FontWeight.Bold else FontWeight.Normal,
-                                                color = if (isSelected) ElegantTextPrimary else ElegantTextSecondary.copy(alpha = 0.7f)
-                                            )
-                                        }
-                                    }
-                                )
                             }
                         }
                     }

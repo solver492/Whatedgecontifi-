@@ -16,6 +16,8 @@ import com.example.data.local.entity.ShippingAgencyEntity
 import com.example.data.local.entity.SupplierEntity
 import com.example.data.local.entity.TelegramAccountEntity
 import com.example.data.local.entity.TelegramChannelEntity
+import com.example.data.local.entity.TelegramLogEntity
+import com.example.data.local.entity.TelegramMessageEntity
 import com.example.data.local.entity.WebhookConfigEntity
 import com.example.data.local.entity.WhatsAppInstanceEntity
 import com.example.data.local.entity.WhatsAppMessageEntity
@@ -76,6 +78,14 @@ class MainViewModel(application: Application) : AndroidViewModel(application) {
 
     val telegramChannels: StateFlow<List<TelegramChannelEntity>> = database.telegramDao()
         .getAllMonitoredChannels()
+        .stateIn(viewModelScope, SharingStarted.WhileSubscribed(5000), emptyList())
+
+    val telegramMessages: StateFlow<List<TelegramMessageEntity>> = database.telegramDao()
+        .getAllMessages()
+        .stateIn(viewModelScope, SharingStarted.WhileSubscribed(5000), emptyList())
+
+    val telegramLogs: StateFlow<List<TelegramLogEntity>> = database.telegramDao()
+        .getRecentLogs()
         .stateIn(viewModelScope, SharingStarted.WhileSubscribed(5000), emptyList())
 
     private val _isTelegramBridgeOnline = MutableStateFlow(false)
@@ -658,6 +668,30 @@ class MainViewModel(application: Application) : AndroidViewModel(application) {
 
     fun openTermuxForTelegram(context: android.content.Context) {
         telegramService.openTermux(context)
+    }
+
+    fun simulateIncomingTelegramMessage(channelTitle: String? = null, customText: String? = null) {
+        viewModelScope.launch {
+            telegramService.simulateIncomingSupplierMessage(channelTitle, customText)
+        }
+    }
+
+    fun deleteTelegramMessage(id: String) {
+        viewModelScope.launch(Dispatchers.IO) {
+            telegramService.deleteMessage(id)
+        }
+    }
+
+    fun clearTelegramMessages() {
+        viewModelScope.launch(Dispatchers.IO) {
+            telegramService.clearAllMessages()
+        }
+    }
+
+    fun clearTelegramLogs() {
+        viewModelScope.launch(Dispatchers.IO) {
+            telegramService.clearLogs()
+        }
     }
 
     // =========================================================================

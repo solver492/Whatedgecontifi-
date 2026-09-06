@@ -35,3 +35,30 @@ data class TelegramChannelEntity(
     val lastMessageText: String = "",
     val lastMessageTimestamp: Long = System.currentTimeMillis()
 )
+
+@Entity(tableName = "telegram_messages")
+data class TelegramMessageEntity(
+    @PrimaryKey val id: String, // e.g. "${channelId}_${messageId}"
+    val channelId: Long,
+    val channelTitle: String,
+    val channelUsername: String = "",
+    val messageId: Long,
+    val senderId: Long = 0L,
+    val senderName: String = "",
+    val text: String = "",
+    val mediaType: String = "none", // none, photo, document, album, video
+    val mediaUrl: String? = null,
+    val localMediaPath: String? = null,
+    val timestamp: Long = System.currentTimeMillis(),
+    val isProcessed: Boolean = false, // True once converted or analyzed into Product
+    val rawJson: String? = null
+)
+
+@Entity(tableName = "telegram_logs")
+data class TelegramLogEntity(
+    @PrimaryKey val id: String = java.util.UUID.randomUUID().toString(),
+    val timestamp: Long = System.currentTimeMillis(),
+    val level: String = "INFO", // INFO, SUCCESS, INCOMING, ERROR, WARN
+    val source: String = "Telethon", // Telethon, Bridge, Listener, Android
+    val message: String
+)
