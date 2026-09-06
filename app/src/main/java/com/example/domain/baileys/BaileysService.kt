@@ -107,21 +107,53 @@ class BaileysService(private val database: AppDatabase) {
         msgDao.insertMessage(incomingMsg)
         _eventsFlow.emit(BaileysEvent(instanceId, "messages.upsert", "Incoming message from $senderName: $messageText"))
 
-        // 2. Resolve target AI Agent via smart routing engine (Category-first, then Instance, Keywords, Schedule, Fallback)
+        // 1.5. Check conversation-level AI override (Toggle / Agent specific per conversation)
+        val conversationOverride = agentDao.getConversationOverride(senderJid)
+        if (conversationOverride != null && !conversationOverride.isAiEnabled) {
+            // AI is explicitly disabled by user for this contact/thread (Human takeover mode)
+            _eventsFlow.emit(BaileysEvent(instanceId, "messages.skip", "IA désactivée pour la conversation $senderJid (Mode Humain)"))
+            return incomingMsg
+        }
+
+        // 2. Resolve target AI Agent via smart routing engine (Override, Category-first, then Instance, Keywords, Schedule, Fallback)
         val activeAgents = agentDao.getActiveAgents()
         val allCategories = database.commerceDao().getAllCategoriesList()
         val allProducts = database.commerceDao().getAllProductsList()
 
-        val routingDecision = selectBestAgentForMessage(
-            agents = activeAgents,
-            categories = allCategories,
-            products = allProducts,
-            instanceId = instanceId,
-            messageText = messageText
-        )
-        val selectedAgent = routingDecision.agent
-        val routingReason = routingDecision.reason
-        val matchedCategory = routingDecision.matchedCategory
+        val selectedAgent: AgentEntity?
+        val routingReason: String
+        var matchedCategory: CategoryEntity? = null
+
+        if (conversationOverride?.forcedAgentId != null) {
+            val forced = activeAgents.firstOrNull { it.id == conversationOverride.forcedAgentId }
+                ?: agentDao.getAgentById(conversationOverride.forcedAgentId)
+            if (forced != null) {
+                selectedAgent = forced
+                routingReason = "Agent assigné manuellement à cette discussion (${forced.name})"
+            } else {
+                val routingDecision = selectBestAgentForMessage(
+                    agents = activeAgents,
+                    categories = allCategories,
+                    products = allProducts,
+                    instanceId = instanceId,
+                    messageText = messageText
+                )
+                selectedAgent = routingDecision.agent
+                routingReason = routingDecision.reason
+                matchedCategory = routingDecision.matchedCategory
+            }
+        } else {
+            val routingDecision = selectBestAgentForMessage(
+                agents = activeAgents,
+                categories = allCategories,
+                products = allProducts,
+                instanceId = instanceId,
+                messageText = messageText
+            )
+            selectedAgent = routingDecision.agent
+            routingReason = routingDecision.reason
+            matchedCategory = routingDecision.matchedCategory
+        }
 
         if (selectedAgent == null) {
             // No active agent configured or all inactive

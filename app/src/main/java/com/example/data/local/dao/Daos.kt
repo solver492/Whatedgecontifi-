@@ -7,6 +7,7 @@ import androidx.room.OnConflictStrategy
 import androidx.room.Query
 import androidx.room.Update
 import com.example.data.local.entity.AgentEntity
+import com.example.data.local.entity.ConversationAgentOverrideEntity
 import com.example.data.local.entity.KnowledgeSourceEntity
 import com.example.data.local.entity.McpToolEntity
 import com.example.data.local.entity.WebhookConfigEntity
@@ -72,6 +73,19 @@ interface AgentDao {
 
     @Query("DELETE FROM ai_agents WHERE id = :id")
     suspend fun deleteAgent(id: String)
+
+    // Conversation Overrides
+    @Query("SELECT * FROM conversation_agent_overrides ORDER BY updatedAt DESC")
+    fun getAllConversationOverrides(): Flow<List<ConversationAgentOverrideEntity>>
+
+    @Query("SELECT * FROM conversation_agent_overrides WHERE remoteJid = :remoteJid LIMIT 1")
+    suspend fun getConversationOverride(remoteJid: String): ConversationAgentOverrideEntity?
+
+    @Insert(onConflict = OnConflictStrategy.REPLACE)
+    suspend fun insertOrUpdateConversationOverride(override: ConversationAgentOverrideEntity)
+
+    @Query("DELETE FROM conversation_agent_overrides WHERE remoteJid = :remoteJid")
+    suspend fun deleteConversationOverride(remoteJid: String)
 }
 
 @Dao

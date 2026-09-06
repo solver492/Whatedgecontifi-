@@ -18,6 +18,7 @@ import com.example.data.local.entity.AffiliateEntity
 import com.example.data.local.entity.AgentEntity
 import com.example.data.local.entity.AppSettingsEntity
 import com.example.data.local.entity.CategoryEntity
+import com.example.data.local.entity.ConversationAgentOverrideEntity
 import com.example.data.local.entity.KnowledgeSourceEntity
 import com.example.data.local.entity.McpToolEntity
 import com.example.data.local.entity.OrderEntity
@@ -58,9 +59,10 @@ import java.util.UUID
         ShippingAgencyEntity::class,
         AffiliateEntity::class,
         OrderEntity::class,
-        AppSettingsEntity::class
+        AppSettingsEntity::class,
+        ConversationAgentOverrideEntity::class
     ],
-    version = 7,
+    version = 8,
     exportSchema = false
 )
 abstract class AppDatabase : RoomDatabase() {

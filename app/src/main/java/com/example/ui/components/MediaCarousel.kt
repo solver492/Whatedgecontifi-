@@ -209,7 +209,7 @@ private fun PhotoImageView(
     contentScale: ContentScale
 ) {
     val context = LocalContext.current
-    var isError by remember { mutableStateOf(false) }
+    var isError by remember(displayModel) { mutableStateOf(false) }
 
     if (displayModel != null && !isError) {
         AsyncImage(
@@ -219,7 +219,13 @@ private fun PhotoImageView(
                 .build(),
             contentDescription = "Photo carrousel",
             contentScale = contentScale,
-            onError = { isError = true },
+            onError = {
+                // Essai fallback si c'est un chemin qui n'a pas été résolu
+                isError = true
+            },
+            onSuccess = {
+                isError = false
+            },
             modifier = Modifier.fillMaxSize()
         )
     } else {
@@ -229,11 +235,23 @@ private fun PhotoImageView(
                 .background(Color(0xFF222028)),
             contentAlignment = Alignment.Center
         ) {
-            Text(
-                text = "Aperçu image indisponible",
-                color = Color.Gray,
-                fontSize = 12.sp
-            )
+            Column(
+                horizontalAlignment = Alignment.CenterHorizontally,
+                verticalArrangement = Arrangement.Center
+            ) {
+                Icon(
+                    imageVector = Icons.Default.ZoomIn,
+                    contentDescription = null,
+                    tint = Color.Gray.copy(alpha = 0.5f),
+                    modifier = Modifier.size(28.dp)
+                )
+                Spacer(modifier = Modifier.height(4.dp))
+                Text(
+                    text = "Aperçu média",
+                    color = Color.Gray,
+                    fontSize = 12.sp
+                )
+            }
         }
     }
 }
@@ -428,45 +446,6 @@ fun FullScreenMediaViewerDialog(
                 .fillMaxSize()
                 .background(Color.Black.copy(alpha = 0.95f))
         ) {
-            // Bouton Fermer
-            IconButton(
-                onClick = onDismiss,
-                modifier = Modifier
-                    .align(Alignment.TopEnd)
-                    .padding(16.dp)
-                    .size(40.dp)
-                    .background(Color.White.copy(alpha = 0.2f), CircleShape)
-            ) {
-                Icon(
-                    imageVector = Icons.Default.Close,
-                    contentDescription = "Fermer",
-                    tint = Color.White
-                )
-            }
-
-            // Bouton réinitialiser zoom
-            if (scale > 1.05f) {
-                IconButton(
-                    onClick = {
-                        scale = 1f
-                        offsetX = 0f
-                        offsetY = 0f
-                    },
-                    modifier = Modifier
-                        .align(Alignment.BottomCenter)
-                        .padding(bottom = 24.dp)
-                        .background(Color.White.copy(alpha = 0.25f), RoundedCornerShape(20.dp))
-                ) {
-                    Text(
-                        "1x Réinitialiser",
-                        color = Color.White,
-                        fontSize = 12.sp,
-                        fontWeight = FontWeight.Bold,
-                        modifier = Modifier.padding(horizontal = 12.dp, vertical = 6.dp)
-                    )
-                }
-            }
-
             // Image avec support du pinch-to-zoom et pan
             Box(
                 modifier = Modifier
@@ -500,6 +479,46 @@ fun FullScreenMediaViewerDialog(
                             translationY = offsetY
                         )
                 )
+            }
+
+            // Bouton Fermer (Placé après l'image pour être au-dessus du pointeur tactile)
+            IconButton(
+                onClick = onDismiss,
+                modifier = Modifier
+                    .align(Alignment.TopEnd)
+                    .padding(20.dp)
+                    .size(44.dp)
+                    .background(Color.Black.copy(alpha = 0.6f), CircleShape)
+            ) {
+                Icon(
+                    imageVector = Icons.Default.Close,
+                    contentDescription = "Fermer",
+                    tint = Color.White,
+                    modifier = Modifier.size(24.dp)
+                )
+            }
+
+            // Bouton réinitialiser zoom
+            if (scale > 1.05f) {
+                IconButton(
+                    onClick = {
+                        scale = 1f
+                        offsetX = 0f
+                        offsetY = 0f
+                    },
+                    modifier = Modifier
+                        .align(Alignment.BottomCenter)
+                        .padding(bottom = 28.dp)
+                        .background(Color.Black.copy(alpha = 0.7f), RoundedCornerShape(20.dp))
+                ) {
+                    Text(
+                        "1x Réinitialiser",
+                        color = Color.White,
+                        fontSize = 12.sp,
+                        fontWeight = FontWeight.Bold,
+                        modifier = Modifier.padding(horizontal = 14.dp, vertical = 6.dp)
+                    )
+                }
             }
         }
     }

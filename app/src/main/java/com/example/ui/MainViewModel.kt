@@ -8,6 +8,7 @@ import com.example.data.local.entity.AffiliateEntity
 import com.example.data.local.entity.AgentEntity
 import com.example.data.local.entity.AppSettingsEntity
 import com.example.data.local.entity.CategoryEntity
+import com.example.data.local.entity.ConversationAgentOverrideEntity
 import com.example.data.local.entity.KnowledgeSourceEntity
 import com.example.data.local.entity.McpToolEntity
 import com.example.data.local.entity.OrderEntity
@@ -32,6 +33,8 @@ import com.example.domain.engine.EdgeModelCatalogItem
 import com.example.domain.engine.EdgeQuantizedModelInfo
 import com.example.domain.engine.LocalModelManager
 import com.example.domain.intelligence.ProductIntelligenceEngine
+import com.example.domain.supabase.SupabaseSyncResult
+import com.example.domain.supabase.SupabaseSyncService
 import com.example.domain.telegram.TelegramAuthResult
 import com.example.domain.telegram.TelegramBridgeStatus
 import com.example.domain.telegram.TelegramService
@@ -63,6 +66,7 @@ class MainViewModel(application: Application) : AndroidViewModel(application) {
     val modelManager = LocalModelManager(application)
     val bridgeServer = LocalNodeBridgeServer(database, baileysService)
     val termuxSyncEngine = TermuxSyncEngine(database, baileysService, bridgeServer)
+    val supabaseSyncService = SupabaseSyncService(application)
 
     val isTermuxOnline = termuxSyncEngine.isTermuxOnline
     val termuxPort = termuxSyncEngine.termuxPort
@@ -310,6 +314,20 @@ class MainViewModel(application: Application) : AndroidViewModel(application) {
         .getAllWebhooks()
         .stateIn(viewModelScope, SharingStarted.WhileSubscribed(5000), emptyList())
 
+    val conversationOverrides: StateFlow<List<ConversationAgentOverrideEntity>> = database.agentDao()
+        .getAllConversationOverrides()
+        .stateIn(viewModelScope, SharingStarted.WhileSubscribed(5000), emptyList())
+
+    private val _isPublishingProduct = MutableStateFlow<String?>(null) // productId currently syncing
+    val isPublishingProduct: StateFlow<String?> = _isPublishingProduct.asStateFlow()
+
+    private val _syncMessage = MutableStateFlow<String?>(null)
+    val syncMessage: StateFlow<String?> = _syncMessage.asStateFlow()
+
+    fun clearSyncMessage() {
+        _syncMessage.value = null
+    }
+
     private val _selectedInstanceId = MutableStateFlow<String?>(null)
     val selectedInstanceId: StateFlow<String?> = _selectedInstanceId.asStateFlow()
 
@@ -446,6 +464,50 @@ class MainViewModel(application: Application) : AndroidViewModel(application) {
     fun deleteAgent(agentId: String) {
         viewModelScope.launch {
             database.agentDao().deleteAgent(agentId)
+        }
+    }
+
+    // --- Conversation-Level Agent Controls ---
+    fun setConversationAiEnabled(remoteJid: String, contactName: String, isEnabled: Boolean) {
+        viewModelScope.launch(Dispatchers.IO) {
+            val existing = database.agentDao().getConversationOverride(remoteJid)
+            val updated = existing?.copy(
+                isAiEnabled = isEnabled,
+                contactName = if (contactName.isNotBlank()) contactName else existing.contactName,
+                updatedAt = System.currentTimeMillis()
+            ) ?: ConversationAgentOverrideEntity(
+                remoteJid = remoteJid,
+                contactName = contactName,
+                isAiEnabled = isEnabled,
+                forcedAgentId = null,
+                updatedAt = System.currentTimeMillis()
+            )
+            database.agentDao().insertOrUpdateConversationOverride(updated)
+            _syncMessage.value = if (isEnabled) "IA activée pour $remoteJid" else "IA désactivée pour $remoteJid (Mode Humain)"
+        }
+    }
+
+    fun setConversationForcedAgent(remoteJid: String, contactName: String, agentId: String?) {
+        viewModelScope.launch(Dispatchers.IO) {
+            val existing = database.agentDao().getConversationOverride(remoteJid)
+            val updated = existing?.copy(
+                forcedAgentId = agentId,
+                contactName = if (contactName.isNotBlank()) contactName else existing.contactName,
+                updatedAt = System.currentTimeMillis()
+            ) ?: ConversationAgentOverrideEntity(
+                remoteJid = remoteJid,
+                contactName = contactName,
+                isAiEnabled = true,
+                forcedAgentId = agentId,
+                updatedAt = System.currentTimeMillis()
+            )
+            database.agentDao().insertOrUpdateConversationOverride(updated)
+        }
+    }
+
+    fun removeConversationOverride(remoteJid: String) {
+        viewModelScope.launch(Dispatchers.IO) {
+            database.agentDao().deleteConversationOverride(remoteJid)
         }
     }
 
@@ -875,13 +937,78 @@ class MainViewModel(application: Application) : AndroidViewModel(application) {
 
     fun toggleProductPublish(product: ProductEntity) {
         viewModelScope.launch(Dispatchers.IO) {
-            database.commerceDao().updateProduct(
-                product.copy(
-                    isPublishedToWebsite = !product.isPublishedToWebsite,
-                    status = if (!product.isPublishedToWebsite) "PUBLISHED" else "VALIDATED",
-                    updatedAt = System.currentTimeMillis()
+            val willPublish = !product.isPublishedToWebsite
+            _isPublishingProduct.value = product.id
+
+            val settings = appSettings.value
+            val supabaseUrl = settings.supabaseUrl.trim()
+            val supabaseKey = settings.supabaseAnonKey.trim()
+
+            var finalPrimaryImageUrl = product.primaryImageUrl
+
+            if (willPublish) {
+                // If Supabase credentials are configured, execute real sync and storage upload
+                if (supabaseUrl.isNotBlank() && supabaseKey.isNotBlank()) {
+                    val mediaList = database.commerceDao().getProductMediaList(product.id)
+                    val syncResult = supabaseSyncService.publishProduct(
+                        product = product,
+                        mediaList = mediaList,
+                        supabaseUrl = supabaseUrl,
+                        supabaseAnonKey = supabaseKey
+                    )
+                    when (syncResult) {
+                        is SupabaseSyncResult.Success -> {
+                            if (syncResult.remoteUrl != null) {
+                                finalPrimaryImageUrl = syncResult.remoteUrl
+                            }
+                            _syncMessage.value = "Produit « ${product.title} » publié sur Supabase !"
+                        }
+                        is SupabaseSyncResult.Error -> {
+                            _syncMessage.value = "Avertissement Supabase : ${syncResult.error}"
+                        }
+                    }
+                } else {
+                    _syncMessage.value = "Produit publié localement (Renseignez l'URL et la Clé Supabase dans Paramètres pour la synchro cloud)"
+                }
+
+                database.commerceDao().updateProduct(
+                    product.copy(
+                        isPublishedToWebsite = true,
+                        status = "PUBLISHED",
+                        primaryImageUrl = finalPrimaryImageUrl,
+                        updatedAt = System.currentTimeMillis()
+                    )
                 )
-            )
+            } else {
+                // Unpublish from Supabase
+                if (supabaseUrl.isNotBlank() && supabaseKey.isNotBlank()) {
+                    val unpublishResult = supabaseSyncService.unpublishProduct(
+                        product = product,
+                        supabaseUrl = supabaseUrl,
+                        supabaseAnonKey = supabaseKey
+                    )
+                    when (unpublishResult) {
+                        is SupabaseSyncResult.Success -> {
+                            _syncMessage.value = "Produit « ${product.title} » retiré du site Supabase."
+                        }
+                        is SupabaseSyncResult.Error -> {
+                            _syncMessage.value = "Notice Supabase : ${unpublishResult.error}"
+                        }
+                    }
+                } else {
+                    _syncMessage.value = "Produit retiré du site localement."
+                }
+
+                database.commerceDao().updateProduct(
+                    product.copy(
+                        isPublishedToWebsite = false,
+                        status = "VALIDATED",
+                        updatedAt = System.currentTimeMillis()
+                    )
+                )
+            }
+
+            _isPublishingProduct.value = null
         }
     }
 

@@ -434,6 +434,15 @@ private fun ProductCardItem(
                 verticalAlignment = Alignment.Top
             ) {
                 if (!product.primaryImageUrl.isNullOrBlank()) {
+                    val imgModel = remember(product.primaryImageUrl) {
+                        val path = product.primaryImageUrl
+                        if (path.startsWith("/")) {
+                            val f = java.io.File(path)
+                            if (f.exists()) f else path
+                        } else {
+                            path
+                        }
+                    }
                     Box(
                         modifier = Modifier
                             .size(68.dp)
@@ -442,7 +451,7 @@ private fun ProductCardItem(
                             .clickable { onViewDetail() }
                     ) {
                         AsyncImage(
-                            model = product.primaryImageUrl,
+                            model = imgModel,
                             contentDescription = product.title,
                             contentScale = ContentScale.Crop,
                             modifier = Modifier.fillMaxSize()
@@ -572,18 +581,24 @@ private fun ProductDetailDialog(
     val parsedMedia = remember(mediaEntities, product.primaryImageUrl) {
         if (mediaEntities.isNotEmpty()) {
             mediaEntities.map { entity ->
+                val mUrl = entity.mediaUrl
+                val isLocal = mUrl.startsWith("/") || mUrl.startsWith("file://")
+                val cleanPath = if (mUrl.startsWith("file://")) mUrl.removePrefix("file://") else mUrl
                 ParsedMediaItem(
-                    url = entity.mediaUrl,
-                    localPath = if (entity.mediaUrl.startsWith("/")) entity.mediaUrl else null,
+                    url = if (isLocal) null else mUrl,
+                    localPath = if (isLocal) cleanPath else null,
                     isVideo = (entity.mediaType == "video")
                 )
             }
         } else if (!product.primaryImageUrl.isNullOrBlank()) {
+            val pUrl = product.primaryImageUrl
+            val isLocal = pUrl.startsWith("/") || pUrl.startsWith("file://")
+            val cleanPath = if (pUrl.startsWith("file://")) pUrl.removePrefix("file://") else pUrl
             listOf(
                 ParsedMediaItem(
-                    url = product.primaryImageUrl,
-                    localPath = if (product.primaryImageUrl.startsWith("/")) product.primaryImageUrl else null,
-                    isVideo = product.primaryImageUrl.endsWith(".mp4") || product.primaryImageUrl.endsWith(".mov")
+                    url = if (isLocal) null else pUrl,
+                    localPath = if (isLocal) cleanPath else null,
+                    isVideo = pUrl.endsWith(".mp4") || pUrl.endsWith(".mov")
                 )
             )
         } else {

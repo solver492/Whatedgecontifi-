@@ -13,7 +13,11 @@ data class ExtractedProductData(
     val currency: String,
     val suggestedSellingPrice: Double?,
     val variantsOrSizes: String?,
-    val contactOrOrderLink: String?
+    val contactOrOrderLink: String?,
+    val isLotOrPackPrice: Boolean = false,
+    val lotQuantity: Int? = null,
+    val lotUnitPriceEstimate: Double? = null,
+    val lotLabel: String? = null
 )
 
 /**
@@ -96,7 +100,7 @@ object ProductIntelligenceEngine {
         val title = extractCleanTitle(normalizedText, channelTitle)
 
         // Prix de vente suggéré (marge raisonnable calculée automatiquement)
-        val suggestedSelling = priceResult.first?.let { p ->
+        val suggestedSelling = priceResult.price?.let { p ->
             val markup = when {
                 p <= 50.0 -> 1.50   // +50% pour petits articles
                 p <= 200.0 -> 1.35  // +35% standard
@@ -114,11 +118,15 @@ object ProductIntelligenceEngine {
         return ExtractedProductData(
             title = title,
             description = description,
-            purchasePrice = priceResult.first,
-            currency = priceResult.second,
+            purchasePrice = priceResult.price,
+            currency = priceResult.currency,
             suggestedSellingPrice = suggestedSelling,
             variantsOrSizes = variants,
-            contactOrOrderLink = contactLink
+            contactOrOrderLink = contactLink,
+            isLotOrPackPrice = priceResult.isLot,
+            lotQuantity = priceResult.lotQuantity,
+            lotUnitPriceEstimate = priceResult.lotUnitPriceEstimate,
+            lotLabel = priceResult.lotLabel
         )
     }
 
@@ -134,18 +142,64 @@ object ProductIntelligenceEngine {
         return res
     }
 
+    data class PriceDetectionResult(
+        val price: Double?,
+        val currency: String,
+        val isLot: Boolean = false,
+        val lotQuantity: Int? = null,
+        val lotUnitPriceEstimate: Double? = null,
+        val lotLabel: String? = null
+    )
+
     /**
-     * Extrait le prix fournisseur et la devise détectée (avec support arabe poussé)
+     * Extrait le prix fournisseur et la devise détectée (avec support arabe poussé et gestion des prix au lot/colis)
      */
-    private fun extractPriceAndCurrency(text: String, defaultCurrency: String): Pair<Double?, String> {
-        // 1. Patterns Arabe
+    private fun extractPriceAndCurrency(text: String, defaultCurrency: String): PriceDetectionResult {
+        // Détection de lot/colis/carton en Arabe et Français
+        // Exemples : "كولي 12 بياسة بـ 360 درهم", "كرطونة 24 حبة ثمن 480 د.م", "Lot de 10 pièces : 150 DH", "Colis 12 pcs à 300 MAD"
+        val lotPatternArabic = Pattern.compile("""(?:كولي|كرطونة|كرتونة|كولية|باك|لوط)\s*([0-9]+)?\s*(?:بياسة|حبة|قطعة|بياسات)?\s*[:：=\-]?\s*(?:الثمن|السعر|ثمن|سعر|بـ|ب)?\s*[:：=\-]?\s*([0-9]+(?:[\.,][0-9]+)?)\s*(?:درهم|دراهم|د\.م|دم|dh|DH|MAD)?""", Pattern.CASE_INSENSITIVE)
+        val matcherLotAr = lotPatternArabic.matcher(text)
+        if (matcherLotAr.find()) {
+            val qty = matcherLotAr.group(1)?.toIntOrNull()
+            val totalPrice = matcherLotAr.group(2)?.replace(",", ".")?.toDoubleOrNull()
+            if (totalPrice != null && totalPrice > 0.0) {
+                val unitPrice = if (qty != null && qty > 0) Math.round((totalPrice / qty) * 10.0) / 10.0 else null
+                val label = if (qty != null) "Prix au lot ($qty pièces)" else "Prix au colis / lot"
+                return PriceDetectionResult(
+                    price = unitPrice ?: totalPrice,
+                    currency = "MAD",
+                    isLot = true,
+                    lotQuantity = qty,
+                    lotUnitPriceEstimate = unitPrice,
+                    lotLabel = label
+                )
+            }
+        }
+
+        val lotPatternLatin = Pattern.compile("""(?:lot|colis|carton|pack)\s*(?:de)?\s*([0-9]+)?\s*(?:pcs|pièces|pieces|u|unités)?\s*[:：=\-]?\s*(?:prix|tarif|coût|cout|price)?\s*[:：=\-]?\s*([0-9]+(?:[\.,][0-9]+)?)\s*(?:€|eur|fcfa|cfa|dh|mad|\$|usd)?""", Pattern.CASE_INSENSITIVE)
+        val matcherLotLat = lotPatternLatin.matcher(text)
+        if (matcherLotLat.find()) {
+            val qty = matcherLotLat.group(1)?.toIntOrNull()
+            val totalPrice = matcherLotLat.group(2)?.replace(",", ".")?.toDoubleOrNull()
+            if (totalPrice != null && totalPrice > 0.0) {
+                val unitPrice = if (qty != null && qty > 0) Math.round((totalPrice / qty) * 10.0) / 10.0 else null
+                val label = if (qty != null) "Prix au lot ($qty pièces)" else "Prix au colis / lot"
+                return PriceDetectionResult(
+                    price = unitPrice ?: totalPrice,
+                    currency = defaultCurrency,
+                    isLot = true,
+                    lotQuantity = qty,
+                    lotUnitPriceEstimate = unitPrice,
+                    lotLabel = label
+                )
+            }
+        }
+
+        // 1. Patterns Arabe Standard
         // Exemples : "الثمن : 90 درهم", "السعر : 120 د.م", "الثمن 90درهم", "السعر 90", "بـ 85 درهم", "فقط ب 95 درهم"
         val arabicPriceRegexes = listOf(
-            // الثمن ou السعر suivi d'un nombre et optionnellement de la devise
             Pattern.compile("""(?:الثمن|السعر|ثمن|سعر)\s*[:：=\-]?\s*([0-9]+(?:[\.,][0-9]+)?)\s*(?:درهم|دراهم|د\.م|دم|dh|DH|MAD)?""", Pattern.CASE_INSENSITIVE),
-            // "بـ 80 درهم" ou "ب 80 د.م"
             Pattern.compile("""(?:بـ|فقط بـ|ب)\s*([0-9]+(?:[\.,][0-9]+)?)\s*(?:درهم|دراهم|د\.م|دم|dh|DH|MAD)""", Pattern.CASE_INSENSITIVE),
-            // Nombre suivi immédiatement de "درهم" ou "د.م"
             Pattern.compile("""([0-9]+(?:[\.,][0-9]+)?)\s*(?:درهم|دراهم|د\.م|دم)""", Pattern.CASE_INSENSITIVE)
         )
 
@@ -161,7 +215,7 @@ object ProductIntelligenceEngine {
                     } else {
                         defaultCurrency
                     }
-                    return Pair(parsed, currency)
+                    return PriceDetectionResult(price = parsed, currency = currency)
                 }
             }
         }
@@ -187,13 +241,13 @@ object ProductIntelligenceEngine {
                         fullMatch.contains("dh") || fullMatch.contains("mad") -> "MAD"
                         else -> defaultCurrency
                     }
-                    return Pair(parsed, currency)
+                    return PriceDetectionResult(price = parsed, currency = currency)
                 }
             }
         }
 
         // Pas de prix formellement détecté
-        return Pair(null, defaultCurrency)
+        return PriceDetectionResult(price = null, currency = defaultCurrency)
     }
 
     /**

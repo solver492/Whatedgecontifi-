@@ -1588,6 +1588,10 @@ fun CreateProductFromTelegramDialog(
         ProductIntelligenceEngine.extractFromTelegramMessage(message, currency)
     }
 
+    val rawExtracted = remember(message.id) {
+        ProductIntelligenceEngine.parseProductText(message.text, message.channelTitle, currency)
+    }
+
     var title by remember { mutableStateOf(extracted.first.title) }
     var purchasePriceInput by remember {
         mutableStateOf(extracted.first.purchasePrice?.let { if (it % 1.0 == 0.0) it.toInt().toString() else it.toString() } ?: "")
@@ -1615,6 +1619,29 @@ fun CreateProductFromTelegramDialog(
                     .verticalScroll(rememberScrollState()),
                 verticalArrangement = Arrangement.spacedBy(10.dp)
             ) {
+                // Badge si prix au lot / colis détecté
+                if (rawExtracted.isLotOrPackPrice) {
+                    Surface(
+                        shape = RoundedCornerShape(8.dp),
+                        color = Color(0xFFF59E0B).copy(alpha = 0.15f),
+                        border = BorderStroke(1.dp, Color(0xFFF59E0B).copy(alpha = 0.5f)),
+                        modifier = Modifier.fillMaxWidth()
+                    ) {
+                        Row(
+                            modifier = Modifier.padding(8.dp),
+                            verticalAlignment = Alignment.CenterVertically
+                        ) {
+                            Icon(Icons.Default.ShoppingBag, contentDescription = null, tint = Color(0xFFF59E0B), modifier = Modifier.size(16.dp))
+                            Spacer(modifier = Modifier.width(6.dp))
+                            Text(
+                                "${rawExtracted.lotLabel ?: "Prix au lot détecté"} : Prix unitaire estimé calculé automatiquement",
+                                color = Color(0xFFF59E0B),
+                                fontSize = 11.sp,
+                                fontWeight = FontWeight.Medium
+                            )
+                        }
+                    }
+                }
                 // Aperçu carrousel des médias du message
                 if (mediaItems.isNotEmpty()) {
                     Text(
