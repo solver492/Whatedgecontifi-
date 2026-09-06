@@ -243,7 +243,8 @@ fun LiveChatSimulator(
     var showBindDialog by remember { mutableStateOf(false) }
     var feedbackToast by remember { mutableStateOf<String?>(null) }
     var isTopExpanded by rememberSaveable { mutableStateOf(true) }
-    var isBottomExpanded by rememberSaveable { mutableStateOf(true) }
+    // 0 = HIDDEN (Monitoring plein écran), 1 = COMPACT (Barre de frappe seule), 2 = FULL (Frappe + Suggestions + Sélecteurs)
+    var bottomPanelState by rememberSaveable { mutableIntStateOf(2) }
 
     val currentInstance = instances.firstOrNull { it.id == activeInstanceId }
     val assignedAgent = currentInstance?.let { inst ->
@@ -967,7 +968,7 @@ fun LiveChatSimulator(
                 }
             }
 
-            // Bottom Header with fold/unfold button
+            // Bottom Header with 3-State Fold / Unfold (Complet, Semi-plié frappe seule, Plié monitoring)
             Row(
                 modifier = Modifier
                     .fillMaxWidth()
@@ -979,208 +980,270 @@ fun LiveChatSimulator(
                     verticalAlignment = Alignment.CenterVertically,
                     modifier = Modifier
                         .clip(RoundedCornerShape(8.dp))
-                        .clickable { isBottomExpanded = !isBottomExpanded }
+                        .clickable {
+                            // Cycle between states: 2 (Complet) -> 1 (Semi-plié) -> 0 (Replié) -> 2
+                            bottomPanelState = when (bottomPanelState) {
+                                2 -> 1
+                                1 -> 0
+                                else -> 2
+                            }
+                        }
                 ) {
                     Icon(
                         imageVector = Icons.Default.ChatBubbleOutline,
                         contentDescription = null,
-                        tint = if (isBottomExpanded) ElegantTextSecondary else ElegantPurpleAccent,
+                        tint = if (bottomPanelState > 0) ElegantTextSecondary else ElegantPurpleAccent,
                         modifier = Modifier.size(14.dp)
                     )
                     Spacer(modifier = Modifier.width(6.dp))
                     Text(
-                        text = if (isBottomExpanded) "SAISIE & SUGGESTIONS" else "Saisie & Suggestions repliées • Plein écran",
+                        text = when (bottomPanelState) {
+                            2 -> "SAISIE & SUGGESTIONS"
+                            1 -> "SAISIE COMPACTE (SEMI-PLIÉ)"
+                            else -> "MONITORING SEUL (REPLIÉ)"
+                        },
                         style = MaterialTheme.typography.labelSmall,
                         fontWeight = FontWeight.Bold,
-                        color = if (isBottomExpanded) ElegantTextSecondary else ElegantPurpleAccent,
+                        color = if (bottomPanelState > 0) ElegantTextSecondary else ElegantPurpleAccent,
                         fontSize = 11.sp
                     )
                 }
 
-                Surface(
-                    shape = RoundedCornerShape(10.dp),
-                    color = if (isBottomExpanded) ElegantDarkSurfaceVariant else ElegantPurpleAccent.copy(alpha = 0.2f),
-                    border = BorderStroke(1.dp, if (isBottomExpanded) ElegantDarkBorder else ElegantPurpleAccent.copy(alpha = 0.6f)),
-                    modifier = Modifier
-                        .clip(RoundedCornerShape(10.dp))
-                        .clickable { isBottomExpanded = !isBottomExpanded }
-                        .testTag("toggle_bottom_panel_button")
+                // 3-state segmented action buttons
+                Row(
+                    horizontalArrangement = Arrangement.spacedBy(4.dp),
+                    verticalAlignment = Alignment.CenterVertically
                 ) {
-                    Row(
-                        modifier = Modifier.padding(horizontal = 10.dp, vertical = 5.dp),
-                        verticalAlignment = Alignment.CenterVertically
+                    // Button 1: Plié complet (Monitoring)
+                    Surface(
+                        shape = RoundedCornerShape(8.dp),
+                        color = if (bottomPanelState == 0) ElegantPurpleAccent.copy(alpha = 0.25f) else ElegantDarkSurfaceVariant,
+                        border = BorderStroke(1.dp, if (bottomPanelState == 0) ElegantPurpleAccent else ElegantDarkBorder),
+                        modifier = Modifier
+                            .clip(RoundedCornerShape(8.dp))
+                            .clickable { bottomPanelState = 0 }
+                            .testTag("toggle_bottom_hidden_button")
                     ) {
                         Text(
-                            text = if (isBottomExpanded) "Replier le bas" else "Déplier le bas",
+                            text = "Plié",
                             style = MaterialTheme.typography.labelSmall,
-                            fontWeight = FontWeight.Bold,
-                            color = if (isBottomExpanded) ElegantTextPrimary else ElegantPurpleAccent,
-                            fontSize = 11.sp
+                            fontWeight = if (bottomPanelState == 0) FontWeight.Bold else FontWeight.Normal,
+                            color = if (bottomPanelState == 0) ElegantPurpleAccent else ElegantTextSecondary,
+                            fontSize = 10.sp,
+                            modifier = Modifier.padding(horizontal = 7.dp, vertical = 4.dp)
                         )
-                        Spacer(modifier = Modifier.width(4.dp))
-                        Icon(
-                            imageVector = if (isBottomExpanded) Icons.Default.KeyboardArrowDown else Icons.Default.KeyboardArrowUp,
-                            contentDescription = if (isBottomExpanded) "Replier le bas" else "Déplier le bas",
-                            tint = if (isBottomExpanded) ElegantTextPrimary else ElegantPurpleAccent,
-                            modifier = Modifier.size(16.dp)
+                    }
+
+                    // Button 2: Semi-plié (Frappe seule)
+                    Surface(
+                        shape = RoundedCornerShape(8.dp),
+                        color = if (bottomPanelState == 1) Color(0xFF00B0FF).copy(alpha = 0.25f) else ElegantDarkSurfaceVariant,
+                        border = BorderStroke(1.dp, if (bottomPanelState == 1) Color(0xFF00B0FF) else ElegantDarkBorder),
+                        modifier = Modifier
+                            .clip(RoundedCornerShape(8.dp))
+                            .clickable { bottomPanelState = 1 }
+                            .testTag("toggle_bottom_compact_button")
+                    ) {
+                        Text(
+                            text = "Semi-plié",
+                            style = MaterialTheme.typography.labelSmall,
+                            fontWeight = if (bottomPanelState == 1) FontWeight.Bold else FontWeight.Normal,
+                            color = if (bottomPanelState == 1) Color(0xFF00B0FF) else ElegantTextSecondary,
+                            fontSize = 10.sp,
+                            modifier = Modifier.padding(horizontal = 7.dp, vertical = 4.dp)
+                        )
+                    }
+
+                    // Button 3: Déplié complet
+                    Surface(
+                        shape = RoundedCornerShape(8.dp),
+                        color = if (bottomPanelState == 2) ElegantGreenActive.copy(alpha = 0.25f) else ElegantDarkSurfaceVariant,
+                        border = BorderStroke(1.dp, if (bottomPanelState == 2) ElegantGreenActive else ElegantDarkBorder),
+                        modifier = Modifier
+                            .clip(RoundedCornerShape(8.dp))
+                            .clickable { bottomPanelState = 2 }
+                            .testTag("toggle_bottom_full_button")
+                    ) {
+                        Text(
+                            text = "Complet",
+                            style = MaterialTheme.typography.labelSmall,
+                            fontWeight = if (bottomPanelState == 2) FontWeight.Bold else FontWeight.Normal,
+                            color = if (bottomPanelState == 2) ElegantGreenActive else ElegantTextSecondary,
+                            fontSize = 10.sp,
+                            modifier = Modifier.padding(horizontal = 7.dp, vertical = 4.dp)
                         )
                     }
                 }
             }
 
+            // Quick Prompts Suggestions (Visible only when FULL = 2)
             AnimatedVisibility(
-                visible = isBottomExpanded,
+                visible = bottomPanelState == 2,
                 enter = expandVertically() + fadeIn(),
                 exit = shrinkVertically() + fadeOut()
             ) {
-                Column(modifier = Modifier.fillMaxWidth()) {
-                    // Quick Prompts Suggestions
-                    FlowRow(
-                        horizontalArrangement = Arrangement.spacedBy(6.dp),
-                        verticalArrangement = Arrangement.spacedBy(4.dp),
-                        modifier = Modifier.padding(vertical = 4.dp)
-                    ) {
-                        val suggestions = listOf(
-                            "Prix du pack ?",
-                            "Horaires d'ouverture ?",
-                            "Prendre RDV",
-                            "Suivi commande #9201",
-                            "Parler à un humain"
-                        )
-                        suggestions.forEach { prompt ->
-                            Surface(
-                                shape = RoundedCornerShape(12.dp),
-                                color = ElegantDarkSurfaceVariant,
-                                border = BorderStroke(1.dp, ElegantDarkBorder),
-                                modifier = Modifier.clickable {
-                                    inputMessageText = prompt
+                FlowRow(
+                    horizontalArrangement = Arrangement.spacedBy(6.dp),
+                    verticalArrangement = Arrangement.spacedBy(4.dp),
+                    modifier = Modifier.padding(vertical = 4.dp)
+                ) {
+                    val suggestions = listOf(
+                        "Prix du pack ?",
+                        "Horaires d'ouverture ?",
+                        "Prendre RDV",
+                        "Suivi commande #9201",
+                        "Parler à un humain"
+                    )
+                    suggestions.forEach { prompt ->
+                        Surface(
+                            shape = RoundedCornerShape(12.dp),
+                            color = ElegantDarkSurfaceVariant,
+                            border = BorderStroke(1.dp, ElegantDarkBorder),
+                            modifier = Modifier.clickable {
+                                inputMessageText = prompt
+                            }
+                        ) {
+                            Text(
+                                text = prompt,
+                                style = MaterialTheme.typography.labelSmall,
+                                color = ElegantTextPrimary,
+                                maxLines = 1,
+                                softWrap = false,
+                                modifier = Modifier.padding(horizontal = 8.dp, vertical = 4.dp)
+                            )
+                        }
+                    }
+                }
+            }
+
+            // Input Bar (Visible in Semi-plié (1) and Complet (2))
+            AnimatedVisibility(
+                visible = bottomPanelState >= 1,
+                enter = expandVertically() + fadeIn(),
+                exit = shrinkVertically() + fadeOut()
+            ) {
+                Card(
+                    modifier = Modifier
+                        .fillMaxWidth()
+                        .padding(bottom = 8.dp),
+                    colors = CardDefaults.cardColors(containerColor = ElegantDarkSurface),
+                    shape = RoundedCornerShape(18.dp),
+                    border = BorderStroke(1.dp, ElegantDarkBorder)
+                ) {
+                    Column(modifier = Modifier.padding(horizontal = 8.dp, vertical = 6.dp)) {
+                        // In Semi-plié, show ultra-compact selector; in Full, show standard selector
+                        Row(
+                            modifier = Modifier.fillMaxWidth(),
+                            verticalAlignment = Alignment.CenterVertically,
+                            horizontalArrangement = Arrangement.SpaceBetween
+                        ) {
+                            Row(verticalAlignment = Alignment.CenterVertically) {
+                                Surface(
+                                    shape = RoundedCornerShape(8.dp),
+                                    color = if (sendAsCustomer) Color(0xFF00B0FF).copy(alpha = 0.2f) else ElegantDarkBg,
+                                    border = BorderStroke(1.dp, if (sendAsCustomer) Color(0xFF00B0FF) else ElegantDarkBorder),
+                                    modifier = Modifier.clickable { sendAsCustomer = true }
+                                ) {
+                                    Text(
+                                        text = if (bottomPanelState == 1) "Client (IA)" else "Simuler Client (Déclenche IA)",
+                                        modifier = Modifier.padding(horizontal = 8.dp, vertical = 3.dp),
+                                        style = MaterialTheme.typography.labelSmall,
+                                        fontWeight = if (sendAsCustomer) FontWeight.Bold else FontWeight.Normal,
+                                        color = if (sendAsCustomer) Color(0xFF00B0FF) else ElegantTextSecondary,
+                                        fontSize = 10.sp,
+                                        maxLines = 1,
+                                        softWrap = false
+                                    )
                                 }
-                            ) {
+                                Spacer(modifier = Modifier.width(6.dp))
+                                Surface(
+                                    shape = RoundedCornerShape(8.dp),
+                                    color = if (!sendAsCustomer) WhatsAppGreen.copy(alpha = 0.2f) else ElegantDarkBg,
+                                    border = BorderStroke(1.dp, if (!sendAsCustomer) WhatsAppGreen else ElegantDarkBorder),
+                                    modifier = Modifier.clickable { sendAsCustomer = false }
+                                ) {
+                                    Text(
+                                        text = if (bottomPanelState == 1) "Moi / Manuel" else "Moi / Réponse Manuelle",
+                                        modifier = Modifier.padding(horizontal = 8.dp, vertical = 3.dp),
+                                        style = MaterialTheme.typography.labelSmall,
+                                        fontWeight = if (!sendAsCustomer) FontWeight.Bold else FontWeight.Normal,
+                                        color = if (!sendAsCustomer) WhatsAppGreen else ElegantTextSecondary,
+                                        fontSize = 10.sp,
+                                        maxLines = 1,
+                                        softWrap = false
+                                    )
+                                }
+                            }
+
+                            if (bottomPanelState == 1) {
                                 Text(
-                                    text = prompt,
+                                    text = "Semi-plié",
                                     style = MaterialTheme.typography.labelSmall,
-                                    color = ElegantTextPrimary,
-                                    maxLines = 1,
-                                    softWrap = false,
-                                    modifier = Modifier.padding(horizontal = 8.dp, vertical = 4.dp)
+                                    color = Color(0xFF00B0FF),
+                                    fontSize = 10.sp,
+                                    fontWeight = FontWeight.Medium
                                 )
                             }
                         }
-                    }
 
-                    // Input bar with Dual Send Mode
-                    Card(
-                        modifier = Modifier
-                            .fillMaxWidth()
-                            .padding(bottom = 8.dp),
-                        colors = CardDefaults.cardColors(containerColor = ElegantDarkSurface),
-                        shape = RoundedCornerShape(20.dp),
-                        border = BorderStroke(1.dp, ElegantDarkBorder)
-                    ) {
-                        Column(modifier = Modifier.padding(8.dp)) {
-                            Row(
-                                modifier = Modifier.fillMaxWidth(),
-                                verticalAlignment = Alignment.CenterVertically,
-                                horizontalArrangement = Arrangement.SpaceBetween
-                            ) {
-                                Row(verticalAlignment = Alignment.CenterVertically) {
-                                    Surface(
-                                        shape = RoundedCornerShape(8.dp),
-                                        color = if (sendAsCustomer) Color(0xFF00B0FF).copy(alpha = 0.2f) else ElegantDarkBg,
-                                        border = BorderStroke(1.dp, if (sendAsCustomer) Color(0xFF00B0FF) else ElegantDarkBorder),
-                                        modifier = Modifier.clickable { sendAsCustomer = true }
-                                    ) {
-                                        Text(
-                                            text = "Simuler Client (Déclenche IA)",
-                                            modifier = Modifier.padding(horizontal = 8.dp, vertical = 3.dp),
-                                            style = MaterialTheme.typography.labelSmall,
-                                            fontWeight = if (sendAsCustomer) FontWeight.Bold else FontWeight.Normal,
-                                            color = if (sendAsCustomer) Color(0xFF00B0FF) else ElegantTextSecondary,
-                                            fontSize = 10.sp,
-                                            maxLines = 1,
-                                            softWrap = false
-                                        )
-                                    }
-                                    Spacer(modifier = Modifier.width(6.dp))
-                                    Surface(
-                                        shape = RoundedCornerShape(8.dp),
-                                        color = if (!sendAsCustomer) WhatsAppGreen.copy(alpha = 0.2f) else ElegantDarkBg,
-                                        border = BorderStroke(1.dp, if (!sendAsCustomer) WhatsAppGreen else ElegantDarkBorder),
-                                        modifier = Modifier.clickable { sendAsCustomer = false }
-                                    ) {
-                                        Text(
-                                            text = "Moi / Réponse Manuelle",
-                                            modifier = Modifier.padding(horizontal = 8.dp, vertical = 3.dp),
-                                            style = MaterialTheme.typography.labelSmall,
-                                            fontWeight = if (!sendAsCustomer) FontWeight.Bold else FontWeight.Normal,
-                                            color = if (!sendAsCustomer) WhatsAppGreen else ElegantTextSecondary,
-                                            fontSize = 10.sp,
-                                            maxLines = 1,
-                                            softWrap = false
-                                        )
-                                    }
-                                }
-                            }
+                        Spacer(modifier = Modifier.height(4.dp))
 
-                            Spacer(modifier = Modifier.height(6.dp))
-
-                            Row(
-                                modifier = Modifier.fillMaxWidth(),
-                                verticalAlignment = Alignment.CenterVertically
-                            ) {
-                                OutlinedTextField(
-                                    value = inputMessageText,
-                                    onValueChange = { inputMessageText = it },
-                                    placeholder = {
-                                        Text(
-                                            text = if (sendAsCustomer) "Écrire un message client..." else "Écrire une réponse manuelle...",
-                                            color = ElegantTextSecondary,
-                                            fontSize = 13.sp
-                                        )
-                                    },
-                                    modifier = Modifier
-                                        .weight(1f)
-                                        .testTag("simulator_chat_input"),
-                                    shape = RoundedCornerShape(16.dp),
-                                    maxLines = 3
-                                )
-                                Spacer(modifier = Modifier.width(8.dp))
-                                IconButton(
-                                    onClick = {
-                                        if (inputMessageText.isNotBlank()) {
-                                            val textToSend = inputMessageText
-                                            inputMessageText = ""
-                                            val targetInstId = currentInstance?.id ?: instances.firstOrNull()?.id ?: "inst_paris_01"
-                                            val contactJid = selectedContactJid ?: "$customerPhone@s.whatsapp.net"
-
-                                            if (sendAsCustomer) {
-                                                viewModel.simulateCustomerMessage(
-                                                    instanceId = targetInstId,
-                                                    senderJid = contactJid,
-                                                    senderName = customerName,
-                                                    text = textToSend
-                                                )
-                                            } else {
-                                                viewModel.sendManualReply(
-                                                    instanceId = targetInstId,
-                                                    remoteJid = contactJid,
-                                                    text = textToSend
-                                                )
-                                            }
-                                        }
-                                    },
-                                    modifier = Modifier
-                                        .size(44.dp)
-                                        .clip(CircleShape)
-                                        .background(if (sendAsCustomer) ElegantPurpleAccent else WhatsAppGreen)
-                                        .testTag("simulator_send_button")
-                                ) {
-                                    Icon(
-                                        imageVector = Icons.AutoMirrored.Filled.Send,
-                                        contentDescription = "Envoyer",
-                                        tint = ElegantPurpleOnAccent
+                        Row(
+                            modifier = Modifier.fillMaxWidth(),
+                            verticalAlignment = Alignment.CenterVertically
+                        ) {
+                            OutlinedTextField(
+                                value = inputMessageText,
+                                onValueChange = { inputMessageText = it },
+                                placeholder = {
+                                    Text(
+                                        text = if (sendAsCustomer) "Écrire un message client..." else "Écrire une réponse manuelle...",
+                                        color = ElegantTextSecondary,
+                                        fontSize = 13.sp
                                     )
-                                }
+                                },
+                                modifier = Modifier
+                                    .weight(1f)
+                                    .testTag("simulator_chat_input"),
+                                shape = RoundedCornerShape(16.dp),
+                                maxLines = if (bottomPanelState == 1) 2 else 3
+                            )
+                            Spacer(modifier = Modifier.width(8.dp))
+                            IconButton(
+                                onClick = {
+                                    if (inputMessageText.isNotBlank()) {
+                                        val textToSend = inputMessageText
+                                        inputMessageText = ""
+                                        val targetInstId = currentInstance?.id ?: instances.firstOrNull()?.id ?: "inst_paris_01"
+                                        val contactJid = selectedContactJid ?: "$customerPhone@s.whatsapp.net"
+
+                                        if (sendAsCustomer) {
+                                            viewModel.simulateCustomerMessage(
+                                                instanceId = targetInstId,
+                                                senderJid = contactJid,
+                                                senderName = customerName,
+                                                text = textToSend
+                                            )
+                                        } else {
+                                            viewModel.sendManualReply(
+                                                instanceId = targetInstId,
+                                                remoteJid = contactJid,
+                                                text = textToSend
+                                            )
+                                        }
+                                    }
+                                },
+                                modifier = Modifier
+                                    .size(44.dp)
+                                    .clip(CircleShape)
+                                    .background(if (sendAsCustomer) ElegantPurpleAccent else WhatsAppGreen)
+                                    .testTag("simulator_send_button")
+                            ) {
+                                Icon(
+                                    imageVector = Icons.AutoMirrored.Filled.Send,
+                                    contentDescription = "Envoyer",
+                                    tint = ElegantPurpleOnAccent
+                                )
                             }
                         }
                     }
