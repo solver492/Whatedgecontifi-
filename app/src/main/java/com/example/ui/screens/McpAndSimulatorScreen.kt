@@ -9,6 +9,7 @@ import androidx.compose.foundation.layout.Box
 import androidx.compose.foundation.layout.Column
 import androidx.compose.foundation.layout.ExperimentalLayoutApi
 import androidx.compose.foundation.layout.FlowRow
+import androidx.compose.foundation.layout.PaddingValues
 import androidx.compose.foundation.layout.Row
 import androidx.compose.foundation.layout.Spacer
 import androidx.compose.foundation.layout.fillMaxSize
@@ -157,7 +158,8 @@ fun McpAndSimulatorScreen(
                 onClick = { selectedSubTab = 0 },
                 text = {
                     Text(
-                        "Messages Reçus & Threads",
+                        "Messages & Threads",
+                        fontSize = 12.sp,
                         fontWeight = if (selectedSubTab == 0) FontWeight.Bold else FontWeight.Normal,
                         color = if (selectedSubTab == 0) ElegantPurpleAccent else ElegantTextSecondary,
                         maxLines = 1,
@@ -170,7 +172,8 @@ fun McpAndSimulatorScreen(
                 onClick = { selectedSubTab = 1 },
                 text = {
                     Text(
-                        "Outils MCP & Webhooks",
+                        "MCP & Webhooks",
+                        fontSize = 12.sp,
                         fontWeight = if (selectedSubTab == 1) FontWeight.Bold else FontWeight.Normal,
                         color = if (selectedSubTab == 1) ElegantPurpleAccent else ElegantTextSecondary,
                         maxLines = 1,
@@ -1145,7 +1148,7 @@ fun LiveChatSimulator(
                                     modifier = Modifier.clickable { sendAsCustomer = true }
                                 ) {
                                     Text(
-                                        text = if (bottomPanelState == 1) "Client (IA)" else "Simuler Client (Déclenche IA)",
+                                        text = if (bottomPanelState == 1) "Client (IA)" else "Simuler Client",
                                         modifier = Modifier.padding(horizontal = 8.dp, vertical = 3.dp),
                                         style = MaterialTheme.typography.labelSmall,
                                         fontWeight = if (sendAsCustomer) FontWeight.Bold else FontWeight.Normal,
@@ -1163,7 +1166,7 @@ fun LiveChatSimulator(
                                     modifier = Modifier.clickable { sendAsCustomer = false }
                                 ) {
                                     Text(
-                                        text = if (bottomPanelState == 1) "Moi / Manuel" else "Moi / Réponse Manuelle",
+                                        text = if (bottomPanelState == 1) "Moi (Manuel)" else "Réponse Manuelle",
                                         modifier = Modifier.padding(horizontal = 8.dp, vertical = 3.dp),
                                         style = MaterialTheme.typography.labelSmall,
                                         fontWeight = if (!sendAsCustomer) FontWeight.Bold else FontWeight.Normal,
@@ -1441,6 +1444,7 @@ fun McpAndWebhooksTab(
 ) {
     var showAddMcpDialog by remember { mutableStateOf(false) }
     var showAddWebhookDialog by remember { mutableStateOf(false) }
+    val distinctTools = remember(mcpTools) { mcpTools.distinctBy { it.name } }
 
     LazyColumn(
         modifier = Modifier
@@ -1470,7 +1474,7 @@ fun McpAndWebhooksTab(
             }
         }
 
-        items(mcpTools, key = { it.id }) { tool ->
+        items(distinctTools, key = { it.id }) { tool ->
             Card(
                 modifier = Modifier.fillMaxWidth(),
                 colors = CardDefaults.cardColors(containerColor = ElegantDarkSurface),
@@ -1532,15 +1536,20 @@ fun McpAndWebhooksTab(
                 verticalAlignment = Alignment.CenterVertically
             ) {
                 Text(
-                    text = "Webhooks & Ponts WebSocket",
+                    text = "Webhooks & Ponts",
                     style = MaterialTheme.typography.titleMedium,
                     fontWeight = FontWeight.Bold,
-                    color = ElegantTextPrimary
+                    color = ElegantTextPrimary,
+                    modifier = Modifier.weight(1f, fill = false),
+                    maxLines = 1
                 )
-                TextButton(onClick = { showAddWebhookDialog = true }) {
+                TextButton(
+                    onClick = { showAddWebhookDialog = true },
+                    contentPadding = PaddingValues(horizontal = 8.dp, vertical = 4.dp)
+                ) {
                     Icon(Icons.Default.Add, contentDescription = null, tint = ElegantPurpleAccent, modifier = Modifier.size(16.dp))
                     Spacer(modifier = Modifier.width(4.dp))
-                    Text("Nouveau Webhook", color = ElegantPurpleAccent, fontWeight = FontWeight.Bold)
+                    Text("Nouveau Webhook", color = ElegantPurpleAccent, fontWeight = FontWeight.Bold, maxLines = 1, softWrap = false)
                 }
             }
         }

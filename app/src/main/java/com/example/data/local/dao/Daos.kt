@@ -94,10 +94,10 @@ interface KnowledgeDao {
 
 @Dao
 interface McpDao {
-    @Query("SELECT * FROM mcp_tools ORDER BY name ASC")
+    @Query("SELECT * FROM mcp_tools GROUP BY name ORDER BY name ASC")
     fun getAllTools(): Flow<List<McpToolEntity>>
 
-    @Query("SELECT * FROM mcp_tools WHERE isEnabled = 1")
+    @Query("SELECT * FROM mcp_tools WHERE isEnabled = 1 GROUP BY name")
     suspend fun getEnabledTools(): List<McpToolEntity>
 
     @Insert(onConflict = OnConflictStrategy.REPLACE)

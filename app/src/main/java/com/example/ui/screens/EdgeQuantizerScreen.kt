@@ -160,9 +160,11 @@ fun EdgeQuantizerScreen(
                     }
 
                     Spacer(modifier = Modifier.height(14.dp))
-                    Row(
+                    @OptIn(ExperimentalLayoutApi::class)
+                    FlowRow(
                         modifier = Modifier.fillMaxWidth(),
-                        horizontalArrangement = Arrangement.SpaceBetween
+                        horizontalArrangement = Arrangement.SpaceBetween,
+                        verticalArrangement = Arrangement.spacedBy(8.dp)
                     ) {
                         Surface(
                             shape = RoundedCornerShape(10.dp),
@@ -176,10 +178,12 @@ fun EdgeQuantizerScreen(
                                 Box(modifier = Modifier.size(7.dp).clip(CircleShape).background(ElegantGreenActive))
                                 Spacer(modifier = Modifier.width(6.dp))
                                 Text(
-                                    text = "${downloadedModels.size} modèle(s) installé(s) sur le téléphone",
+                                    text = "${downloadedModels.size} modèle(s) installé(s)",
                                     style = MaterialTheme.typography.labelSmall,
                                     fontWeight = FontWeight.Bold,
-                                    color = ElegantTextPrimary
+                                    color = ElegantTextPrimary,
+                                    maxLines = 1,
+                                    softWrap = false
                                 )
                             }
                         }
@@ -189,13 +193,21 @@ fun EdgeQuantizerScreen(
                             color = ElegantDarkBg.copy(alpha = 0.6f),
                             border = BorderStroke(1.dp, ElegantDarkBorder)
                         ) {
-                            Text(
-                                text = "NPU Hexagon • LiteRT",
+                            Row(
                                 modifier = Modifier.padding(horizontal = 10.dp, vertical = 5.dp),
-                                style = MaterialTheme.typography.labelSmall,
-                                color = ElegantPurpleAccent,
-                                fontWeight = FontWeight.SemiBold
-                            )
+                                verticalAlignment = Alignment.CenterVertically
+                            ) {
+                                Box(modifier = Modifier.size(6.dp).clip(CircleShape).background(ElegantPurpleAccent))
+                                Spacer(modifier = Modifier.width(5.dp))
+                                Text(
+                                    text = "NPU Hexagon • LiteRT",
+                                    style = MaterialTheme.typography.labelSmall,
+                                    color = ElegantPurpleAccent,
+                                    fontWeight = FontWeight.SemiBold,
+                                    maxLines = 1,
+                                    softWrap = false
+                                )
+                            }
                         }
                     }
                 }

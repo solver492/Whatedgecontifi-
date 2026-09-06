@@ -8,6 +8,7 @@ import androidx.compose.foundation.clickable
 import androidx.compose.foundation.layout.Arrangement
 import androidx.compose.foundation.layout.Box
 import androidx.compose.foundation.layout.Column
+import androidx.compose.foundation.layout.PaddingValues
 import androidx.compose.foundation.layout.Row
 import androidx.compose.foundation.layout.Spacer
 import androidx.compose.foundation.layout.fillMaxSize
@@ -263,11 +264,12 @@ fun InstancesScreen(
                                     TermuxSyncEngine.openTermux(context)
                                 },
                                 modifier = Modifier.weight(1.3f),
+                                contentPadding = PaddingValues(horizontal = 6.dp, vertical = 8.dp),
                                 shape = RoundedCornerShape(10.dp),
                                 colors = ButtonDefaults.buttonColors(containerColor = WhatsAppGreen, contentColor = Color.White)
                             ) {
-                                Icon(Icons.Default.Terminal, contentDescription = null, modifier = Modifier.size(16.dp))
-                                Spacer(modifier = Modifier.width(4.dp))
+                                Icon(Icons.Default.Terminal, contentDescription = null, modifier = Modifier.size(15.dp))
+                                Spacer(modifier = Modifier.width(3.dp))
                                 Text("Lancer Termux", fontSize = 11.sp, fontWeight = FontWeight.Bold, maxLines = 1, softWrap = false)
                             }
 
@@ -1364,6 +1366,7 @@ fun InstanceCard(
                 OutlinedButton(
                     onClick = onShowPairing,
                     shape = RoundedCornerShape(10.dp),
+                    contentPadding = PaddingValues(horizontal = 8.dp, vertical = 6.dp),
                     border = BorderStroke(1.dp, ElegantPurpleAccent.copy(alpha = 0.8f)),
                     colors = ButtonDefaults.outlinedButtonColors(containerColor = ElegantPurpleAccent.copy(alpha = 0.12f))
                 ) {

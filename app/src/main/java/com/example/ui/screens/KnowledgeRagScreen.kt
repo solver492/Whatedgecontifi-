@@ -404,8 +404,8 @@ fun AddKnowledgeSourceDialog(
                             OutlinedTextField(
                                 value = targetUrl,
                                 onValueChange = { targetUrl = it },
-                                label = { Text("URL Projet Supabase") },
-                                placeholder = { Text("https://xxx.supabase.co") },
+                                label = { Text("URL du Projet Supabase") },
+                                placeholder = { Text("https://xyz.supabase.co") },
                                 shape = RoundedCornerShape(14.dp),
                                 modifier = Modifier.fillMaxWidth()
                             )
@@ -414,7 +414,8 @@ fun AddKnowledgeSourceDialog(
                             OutlinedTextField(
                                 value = supabaseTable,
                                 onValueChange = { supabaseTable = it },
-                                label = { Text("Nom de la table (ex: clients, faq)") },
+                                label = { Text("Nom de la table") },
+                                placeholder = { Text("documents, faq, clients...") },
                                 shape = RoundedCornerShape(14.dp),
                                 modifier = Modifier.fillMaxWidth()
                             )
@@ -423,7 +424,8 @@ fun AddKnowledgeSourceDialog(
                             OutlinedTextField(
                                 value = supabaseAnonKey,
                                 onValueChange = { supabaseAnonKey = it },
-                                label = { Text("Supabase Anon Key") },
+                                label = { Text("Clé API Publique (Anon Key)") },
+                                placeholder = { Text("eyJhbGciOiJIUzI1NiIsIn...") },
                                 shape = RoundedCornerShape(14.dp),
                                 modifier = Modifier.fillMaxWidth()
                             )
@@ -433,7 +435,7 @@ fun AddKnowledgeSourceDialog(
                                 value = contentText,
                                 onValueChange = { contentText = it },
                                 label = { Text("Extrait de données ou test synchro") },
-                                placeholder = { Text("Table produits: Pack Pro 79€, Pack Entreprise...") },
+                                placeholder = { Text("Données de test ou description du schéma...") },
                                 shape = RoundedCornerShape(14.dp),
                                 minLines = 2,
                                 maxLines = 4,

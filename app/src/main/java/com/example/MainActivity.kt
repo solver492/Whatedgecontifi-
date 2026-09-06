@@ -197,7 +197,7 @@ fun MainAppScreen(viewModel: MainViewModel) {
                         selected = currentTabIndex == 0,
                         onClick = { currentTabIndex = 0 },
                         icon = { Icon(Icons.Default.Hub, contentDescription = "Instances") },
-                        label = { Text("Instances", fontSize = 11.sp, fontWeight = if (currentTabIndex == 0) FontWeight.Bold else FontWeight.Normal) },
+                        label = { Text("Instances", fontSize = 10.sp, maxLines = 1, softWrap = false, fontWeight = if (currentTabIndex == 0) FontWeight.Bold else FontWeight.Normal) },
                         colors = navItemColors,
                         modifier = Modifier.testTag("tab_instances")
                     )
@@ -205,7 +205,7 @@ fun MainAppScreen(viewModel: MainViewModel) {
                         selected = currentTabIndex == 1,
                         onClick = { currentTabIndex = 1 },
                         icon = { Icon(Icons.Default.SmartToy, contentDescription = "Agents") },
-                        label = { Text("Agents", fontSize = 11.sp, fontWeight = if (currentTabIndex == 1) FontWeight.Bold else FontWeight.Normal) },
+                        label = { Text("Agents", fontSize = 10.sp, maxLines = 1, softWrap = false, fontWeight = if (currentTabIndex == 1) FontWeight.Bold else FontWeight.Normal) },
                         colors = navItemColors,
                         modifier = Modifier.testTag("tab_agents")
                     )
@@ -213,7 +213,7 @@ fun MainAppScreen(viewModel: MainViewModel) {
                         selected = currentTabIndex == 2,
                         onClick = { currentTabIndex = 2 },
                         icon = { Icon(Icons.Default.MenuBook, contentDescription = "Knowledge") },
-                        label = { Text("Knowledge", fontSize = 11.sp, fontWeight = if (currentTabIndex == 2) FontWeight.Bold else FontWeight.Normal) },
+                        label = { Text("Knowledge", fontSize = 10.sp, maxLines = 1, softWrap = false, fontWeight = if (currentTabIndex == 2) FontWeight.Bold else FontWeight.Normal) },
                         colors = navItemColors,
                         modifier = Modifier.testTag("tab_knowledge")
                     )
@@ -221,7 +221,7 @@ fun MainAppScreen(viewModel: MainViewModel) {
                         selected = currentTabIndex == 3,
                         onClick = { currentTabIndex = 3 },
                         icon = { Icon(Icons.Default.Memory, contentDescription = "Quantizer") },
-                        label = { Text("Quantizer", fontSize = 11.sp, fontWeight = if (currentTabIndex == 3) FontWeight.Bold else FontWeight.Normal) },
+                        label = { Text("Quantizer", fontSize = 10.sp, maxLines = 1, softWrap = false, fontWeight = if (currentTabIndex == 3) FontWeight.Bold else FontWeight.Normal) },
                         colors = navItemColors,
                         modifier = Modifier.testTag("tab_quantizer")
                     )
@@ -229,7 +229,7 @@ fun MainAppScreen(viewModel: MainViewModel) {
                         selected = currentTabIndex == 4,
                         onClick = { currentTabIndex = 4 },
                         icon = { Icon(Icons.Default.Chat, contentDescription = "Threads") },
-                        label = { Text("Threads", fontSize = 11.sp, fontWeight = if (currentTabIndex == 4) FontWeight.Bold else FontWeight.Normal) },
+                        label = { Text("Threads", fontSize = 10.sp, maxLines = 1, softWrap = false, fontWeight = if (currentTabIndex == 4) FontWeight.Bold else FontWeight.Normal) },
                         colors = navItemColors,
                         modifier = Modifier.testTag("tab_simulator")
                     )

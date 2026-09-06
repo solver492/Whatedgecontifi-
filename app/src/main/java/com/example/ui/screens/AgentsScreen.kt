@@ -364,19 +364,21 @@ fun AgentCard(
                         )
                     }
                     Spacer(modifier = Modifier.width(12.dp))
-                    Column {
+                    Column(modifier = Modifier.weight(1f, fill = false)) {
                         Text(
                             text = agent.name,
                             style = MaterialTheme.typography.titleMedium,
                             fontWeight = FontWeight.Bold,
                             color = ElegantTextPrimary,
-                            maxLines = 1,
+                            maxLines = 2,
                             overflow = TextOverflow.Ellipsis
                         )
                         Text(
                             text = "${agent.role} • ${agent.modelId}",
                             style = MaterialTheme.typography.bodySmall,
-                            color = ElegantPurpleSecondary
+                            color = ElegantPurpleSecondary,
+                            maxLines = 1,
+                            overflow = TextOverflow.Ellipsis
                         )
                     }
                 }
