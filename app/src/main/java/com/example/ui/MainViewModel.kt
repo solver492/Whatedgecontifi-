@@ -418,11 +418,13 @@ class MainViewModel(application: Application) : AndroidViewModel(application) {
     suspend fun testAgentDirectly(agent: AgentEntity, testQuery: String): com.example.domain.engine.InferenceResult {
         val knowledge = database.knowledgeDao().getSourcesForAgent(agent.id)
         val tools = database.mcpDao().getEnabledTools()
+        val products = database.commerceDao().getAllProductsList()
         val result = com.example.domain.engine.AiEdgeQuantizerEngine.runAgentInference(
             agent = agent,
             customerQuery = testQuery,
             knowledgeSources = knowledge,
-            mcpTools = tools
+            mcpTools = tools,
+            products = products
         )
         database.agentDao().recordAgentResponse(agent.id, result.latencyMs)
         return result
@@ -753,54 +755,6 @@ class MainViewModel(application: Application) : AndroidViewModel(application) {
                 lastMessageTimestamp = System.currentTimeMillis()
             )
             database.telegramDao().insertChannel(channel)
-        }
-    }
-
-    fun simulateIncomingTelegramMessage(
-        channelTitle: String = "Grossiste Mode Direct VIP",
-        text: String = "🔥 Nouvel arrivage Disponible Immédiatement !\n📦 Sneakers Air Max Edition Limitée\n💰 Prix fournisseur : 45€ / paire (Min 5 paires)\n🚚 Expédition sous 24h Chrono"
-    ) {
-        viewModelScope.launch(Dispatchers.IO) {
-            val dummyChannelId = -1001987654321L
-            val msgId = System.currentTimeMillis()
-            val entity = TelegramMessageEntity(
-                id = "${dummyChannelId}_$msgId",
-                channelId = dummyChannelId,
-                channelTitle = channelTitle,
-                channelUsername = "grossiste_mode_vip",
-                messageId = msgId,
-                senderId = 123456789L,
-                senderName = "Canal Fournisseur VIP",
-                text = text,
-                mediaType = "photo",
-                mediaUrl = null,
-                timestamp = System.currentTimeMillis(),
-                isProcessed = false
-            )
-            database.telegramDao().insertMessage(entity)
-            database.telegramDao().insertChannel(
-                TelegramChannelEntity(
-                    id = "default_$dummyChannelId",
-                    accountId = "default_account",
-                    channelId = dummyChannelId,
-                    title = channelTitle,
-                    username = "grossiste_mode_vip",
-                    isChannel = true,
-                    isGroup = false,
-                    memberCount = 1420,
-                    isMonitored = true,
-                    unreadCount = 1,
-                    lastMessageText = text.take(60),
-                    lastMessageTimestamp = System.currentTimeMillis()
-                )
-            )
-            database.telegramDao().insertLog(
-                TelegramLogEntity(
-                    level = "INCOMING",
-                    source = "Telethon",
-                    message = "[$channelTitle] Message reçu : ${text.take(60)}..."
-                )
-            )
         }
     }
 

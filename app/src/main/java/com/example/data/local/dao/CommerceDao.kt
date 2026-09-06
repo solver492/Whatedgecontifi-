@@ -22,6 +22,9 @@ interface CommerceDao {
     @Query("SELECT * FROM ecommerce_products ORDER BY createdAt DESC")
     fun getAllProducts(): Flow<List<ProductEntity>>
 
+    @Query("SELECT * FROM ecommerce_products ORDER BY createdAt DESC")
+    suspend fun getAllProductsList(): List<ProductEntity>
+
     @Query("SELECT * FROM ecommerce_products WHERE id = :id")
     suspend fun getProductById(id: String): ProductEntity?
 

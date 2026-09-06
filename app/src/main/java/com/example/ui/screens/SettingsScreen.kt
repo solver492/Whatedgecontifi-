@@ -146,22 +146,22 @@ fun SettingsScreen(
         ) {
             // Header
             item {
-                Row(
+                Column(
                     modifier = Modifier.fillMaxWidth(),
-                    horizontalArrangement = Arrangement.SpaceBetween,
-                    verticalAlignment = Alignment.CenterVertically
+                    verticalArrangement = Arrangement.spacedBy(12.dp)
                 ) {
-                    Column {
+                    Column(modifier = Modifier.fillMaxWidth()) {
                         Text(
                             text = "Paramètres & Configuration",
                             color = ElegantTextPrimary,
                             fontWeight = FontWeight.Bold,
                             fontSize = 20.sp
                         )
+                        Spacer(modifier = Modifier.height(4.dp))
                         Text(
                             text = "Devise, pays par défaut, clés d'API et règles de calcul",
                             color = ElegantTextSecondary,
-                            fontSize = 12.sp
+                            fontSize = 13.sp
                         )
                     }
 
@@ -190,12 +190,15 @@ fun SettingsScreen(
                             Toast.makeText(context, "Paramètres enregistrés avec succès !", Toast.LENGTH_SHORT).show()
                         },
                         colors = ButtonDefaults.buttonColors(containerColor = ElegantPurpleAccent),
-                        shape = RoundedCornerShape(10.dp),
-                        modifier = Modifier.testTag("save_settings_button")
+                        shape = RoundedCornerShape(12.dp),
+                        modifier = Modifier
+                            .fillMaxWidth()
+                            .height(48.dp)
+                            .testTag("save_settings_button")
                     ) {
-                        Icon(Icons.Default.Save, contentDescription = null, modifier = Modifier.size(16.dp))
-                        Spacer(modifier = Modifier.width(6.dp))
-                        Text("Enregistrer", fontWeight = FontWeight.Bold)
+                        Icon(Icons.Default.Save, contentDescription = null, modifier = Modifier.size(18.dp))
+                        Spacer(modifier = Modifier.width(8.dp))
+                        Text("Enregistrer les Paramètres", fontWeight = FontWeight.Bold, fontSize = 14.sp)
                     }
                 }
             }

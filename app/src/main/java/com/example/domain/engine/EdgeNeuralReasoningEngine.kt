@@ -24,6 +24,7 @@ object EdgeNeuralReasoningEngine {
         backend: String = "NPU",
         knowledgeSources: List<KnowledgeSourceEntity> = emptyList(),
         mcpTools: List<McpToolEntity> = emptyList(),
+        products: List<com.example.data.local.entity.ProductEntity> = emptyList(),
         agentName: String? = null,
         agentRole: String? = null
     ): DetailedInferenceOutput {
@@ -44,6 +45,12 @@ object EdgeNeuralReasoningEngine {
                         append("- ${it.title}: ${it.contentData}\n")
                     }
                 }
+                if (products.isNotEmpty()) {
+                    append("Catalogue de produits en direct :\n")
+                    products.filter { it.status == "PUBLISHED" || it.status == "VALIDATED" }.forEach {
+                        append("- ${it.title}: ${it.sellingPrice} ${it.currency} (Stock: ${it.stockQuantity}) - ${it.description}\n")
+                    }
+                }
             }
 
             val geminiResponse = GeminiClient.generateContent(
@@ -59,18 +66,18 @@ object EdgeNeuralReasoningEngine {
                     tokensGenerated = tokens,
                     latencyMs = elapsed,
                     backendUsed = "Cloud REST (Gemini 3.5 Flash)",
-                    ragSnippetsUsed = extractRelevantRagSnippets(prompt, knowledgeSources),
-                    mcpToolCalls = evaluateMcpTools(prompt, mcpTools)
+                    ragSnippetsUsed = extractRelevantRagSnippets(prompt, knowledgeSources, products),
+                    mcpToolCalls = evaluateMcpTools(prompt, mcpTools, products)
                 )
             }
         }
 
         // On-Device Edge Execution
         // 1. RAG Matching
-        val matchedSnippets = extractRelevantRagSnippets(prompt, knowledgeSources)
+        val matchedSnippets = extractRelevantRagSnippets(prompt, knowledgeSources, products)
 
         // 2. MCP Tools Execution
-        val executedTools = evaluateMcpTools(prompt, mcpTools)
+        val executedTools = evaluateMcpTools(prompt, mcpTools, products)
 
         // 3. Multi-turn Neural Generation based on semantic intent, persona, knowledge, and tools
         val generatedText = synthesizeNeuralResponse(
@@ -101,15 +108,16 @@ object EdgeNeuralReasoningEngine {
 
     private fun extractRelevantRagSnippets(
         query: String,
-        sources: List<KnowledgeSourceEntity>
+        sources: List<KnowledgeSourceEntity>,
+        products: List<com.example.data.local.entity.ProductEntity> = emptyList()
     ): List<String> {
-        if (sources.isEmpty()) return emptyList()
         val results = mutableListOf<String>()
         val qLower = query.lowercase(Locale.getDefault())
         val queryKeywords = qLower.split(" ", "?", "!", ",", ";", ":", "-", "'")
             .map { it.trim() }
             .filter { it.length >= 3 }
 
+        // 1. Sources documentaires RAG
         for (source in sources) {
             if (!source.isEnabled || source.contentData.isBlank()) continue
             val sentences = source.contentData.split(".", "\n", ";").filter { it.isNotBlank() }
@@ -122,12 +130,25 @@ object EdgeNeuralReasoningEngine {
                 results.add("[Base: ${source.title}] " + matchingSentences.take(2).joinToString(". ").trim())
             }
         }
+
+        // 2. Catalogue Produits RAG (produits saisis ou captés depuis Telegram)
+        for (product in products) {
+            val titleLower = product.title.lowercase(Locale.getDefault())
+            val descLower = product.description.lowercase(Locale.getDefault())
+            val isMatch = queryKeywords.any { kw -> titleLower.contains(kw) || descLower.contains(kw) }
+            if (isMatch) {
+                val stockText = if (product.stockQuantity > 0) "En stock (${product.stockQuantity} dispo)" else "Rupture temporaire"
+                results.add("[Catalogue Produit: ${product.title}] Prix: ${product.sellingPrice} ${product.currency} | $stockText | Statut: ${product.status} | Description: ${product.description.take(120)}")
+            }
+        }
+
         return results
     }
 
     private fun evaluateMcpTools(
         query: String,
-        tools: List<McpToolEntity>
+        tools: List<McpToolEntity>,
+        products: List<com.example.data.local.entity.ProductEntity> = emptyList()
     ): List<String> {
         val executed = mutableListOf<String>()
         val q = query.lowercase(Locale.getDefault())
@@ -139,7 +160,14 @@ object EdgeNeuralReasoningEngine {
 
         if (tools.any { it.name == "get_product_price" && it.isEnabled } &&
             (q.contains("prix") || q.contains("tarif") || q.contains("cout") || q.contains("forfait") || q.contains("pack") || q.contains("combien") || q.contains("abonnement"))) {
-            executed.add("get_product_price(item=\"Pack Pro\") -> 79€ / mois (Multi-instances WhatsApp + RAG Supabase + Moteur LiteRT INT4)")
+            val matchedProduct = products.firstOrNull { prod ->
+                prod.title.lowercase(Locale.getDefault()).split(" ").any { kw -> kw.length >= 3 && q.contains(kw) }
+            }
+            if (matchedProduct != null) {
+                executed.add("get_product_price(item=\"${matchedProduct.title}\") -> ${matchedProduct.sellingPrice} ${matchedProduct.currency} (Disponibilité: ${matchedProduct.stockQuantity} en stock)")
+            } else {
+                executed.add("get_product_price(item=\"Pack Pro\") -> 79€ / mois (Multi-instances WhatsApp + RAG Supabase + Moteur LiteRT INT4)")
+            }
         }
 
         if (tools.any { it.name == "book_appointment" && it.isEnabled } &&

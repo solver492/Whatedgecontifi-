@@ -43,6 +43,8 @@ import androidx.compose.material.icons.filled.Send
 import androidx.compose.material.icons.filled.ShoppingBag
 import androidx.compose.material.icons.filled.Sync
 import androidx.compose.material.icons.filled.Terminal
+import androidx.compose.material.icons.filled.Visibility
+import androidx.compose.material.icons.filled.VisibilityOff
 import androidx.compose.material.icons.filled.VpnKey
 import androidx.compose.material3.AlertDialog
 import androidx.compose.material3.Button
@@ -122,16 +124,26 @@ fun TelegramScreen(
     val isBridgeOnline by viewModel.isTelegramBridgeOnline.collectAsState()
     val telegramStatus by viewModel.telegramStatus.collectAsState()
     val isLoading by viewModel.isTelegramLoading.collectAsState()
+    val appSettings by viewModel.appSettings.collectAsState()
+    val hiddenChannelIds by viewModel.hiddenChannelIds.collectAsState()
 
     var selectedSection by remember { mutableStateOf(0) }
     var showTermuxDialog by remember { mutableStateOf(false) }
     var showAddChannelDialog by remember { mutableStateOf(false) }
     var toastMessage by remember { mutableStateOf<String?>(null) }
 
-    // Form states
-    var apiIdInput by remember { mutableStateOf("2040") }
-    var apiHashInput by remember { mutableStateOf("b083b7c55c1234567890abcdef123456") }
-    var phoneInput by remember { mutableStateOf("+33612345678") }
+    // Channel exploration state
+    var exploringChannel by remember { mutableStateOf<TelegramChannelEntity?>(null) }
+    var exploringMessages by remember { mutableStateOf<List<TelegramMessageEntity>>(emptyList()) }
+    var isExploringLoading by remember { mutableStateOf(false) }
+
+    // Channel filter: 0 = Surveillés, 1 = Tous, 2 = Masqués
+    var channelFilterIndex by remember { mutableStateOf(0) }
+
+    // Form states (prefilled from saved settings if available)
+    var apiIdInput by remember(appSettings) { mutableStateOf(appSettings.telegramApiId) }
+    var apiHashInput by remember(appSettings) { mutableStateOf(appSettings.telegramApiHash) }
+    var phoneInput by remember(appSettings) { mutableStateOf(appSettings.defaultCountryCode) }
     var codeInput by remember { mutableStateOf("") }
     var password2FAInput by remember { mutableStateOf("") }
     var step by remember { mutableStateOf(1) } // 1: Info/Phone, 2: Code verification
@@ -315,28 +327,9 @@ fun TelegramScreen(
             }
         }
 
-        // --- 1.5 NAVIGATION TABS & QUICK SIMULATION ACTION ---
+        // --- 1.5 NAVIGATION TABS ---
         item {
             Column(verticalArrangement = Arrangement.spacedBy(10.dp)) {
-                // Quick supplier simulation action
-                Button(
-                    onClick = {
-                        viewModel.simulateIncomingTelegramMessage()
-                        toastMessage = "Message fournisseur simulé reçu avec succès !"
-                    },
-                    modifier = Modifier.fillMaxWidth().testTag("simulate_supplier_msg_button"),
-                    shape = RoundedCornerShape(12.dp),
-                    colors = ButtonDefaults.buttonColors(
-                        containerColor = ElegantGreenActive.copy(alpha = 0.16f),
-                        contentColor = ElegantGreenActive
-                    ),
-                    border = BorderStroke(1.dp, ElegantGreenActive.copy(alpha = 0.45f))
-                ) {
-                    Icon(Icons.Default.Bolt, contentDescription = null, modifier = Modifier.size(18.dp))
-                    Spacer(modifier = Modifier.width(8.dp))
-                    Text("⚡ Simuler Message Fournisseur Entrant (Test Direct)", fontWeight = FontWeight.Bold, fontSize = 12.sp)
-                }
-
                 // 3-way Navigation TabRow
                 Surface(
                     shape = RoundedCornerShape(12.dp),
@@ -654,44 +647,83 @@ fun TelegramScreen(
 
             // --- 3. CANAUX & GROUPES SURVEILLÉS ---
             item {
-                Row(
-                    modifier = Modifier.fillMaxWidth(),
-                    horizontalArrangement = Arrangement.SpaceBetween,
-                    verticalAlignment = Alignment.CenterVertically
-                ) {
-                    Column(modifier = Modifier.weight(1f)) {
-                        Text(
-                            text = "Canaux Fournisseurs & Alertes",
-                            style = MaterialTheme.typography.titleMedium,
-                            fontWeight = FontWeight.Bold,
-                            color = ElegantTextPrimary,
-                            maxLines = 1,
-                            overflow = TextOverflow.Ellipsis
-                        )
-                        Text(
-                            text = "${channels.count { it.isMonitored }} canal/groupes surveillés pour l'ingestion",
-                            style = MaterialTheme.typography.bodySmall,
-                            color = ElegantTextSecondary,
-                            maxLines = 1,
-                            overflow = TextOverflow.Ellipsis
-                        )
+                val monitoredCount = channels.count { it.isMonitored && !hiddenChannelIds.contains(it.channelId) }
+                val totalVisibleCount = channels.count { !hiddenChannelIds.contains(it.channelId) }
+                val hiddenCount = channels.count { hiddenChannelIds.contains(it.channelId) }
+
+                Column(verticalArrangement = Arrangement.spacedBy(10.dp)) {
+                    Row(
+                        modifier = Modifier.fillMaxWidth(),
+                        horizontalArrangement = Arrangement.SpaceBetween,
+                        verticalAlignment = Alignment.CenterVertically
+                    ) {
+                        Column(modifier = Modifier.weight(1f)) {
+                            Text(
+                                text = "Canaux Fournisseurs & Alertes",
+                                style = MaterialTheme.typography.titleMedium,
+                                fontWeight = FontWeight.Bold,
+                                color = ElegantTextPrimary,
+                                maxLines = 1,
+                                overflow = TextOverflow.Ellipsis
+                            )
+                            Text(
+                                text = "$monitoredCount canal/groupes surveillés pour l'ingestion",
+                                style = MaterialTheme.typography.bodySmall,
+                                color = ElegantTextSecondary,
+                                maxLines = 1,
+                                overflow = TextOverflow.Ellipsis
+                            )
+                        }
+
+                        Spacer(modifier = Modifier.width(8.dp))
+
+                        TextButton(
+                            onClick = { showAddChannelDialog = true },
+                            contentPadding = PaddingValues(horizontal = 10.dp, vertical = 4.dp),
+                            modifier = Modifier.testTag("add_channel_button")
+                        ) {
+                            Icon(Icons.Default.Add, contentDescription = null, tint = TelegramBlue, modifier = Modifier.size(16.dp))
+                            Spacer(modifier = Modifier.width(4.dp))
+                            Text("Ajouter", color = TelegramBlue, fontWeight = FontWeight.Bold, maxLines = 1, softWrap = false)
+                        }
                     }
 
-                    Spacer(modifier = Modifier.width(8.dp))
-
-                    TextButton(
-                        onClick = { showAddChannelDialog = true },
-                        contentPadding = PaddingValues(horizontal = 10.dp, vertical = 4.dp),
-                        modifier = Modifier.testTag("add_channel_button")
+                    // Filtres de visibilité des canaux
+                    Row(
+                        modifier = Modifier.fillMaxWidth(),
+                        horizontalArrangement = Arrangement.spacedBy(8.dp)
                     ) {
-                        Icon(Icons.Default.Add, contentDescription = null, tint = TelegramBlue, modifier = Modifier.size(16.dp))
-                        Spacer(modifier = Modifier.width(4.dp))
-                        Text("Ajouter", color = TelegramBlue, fontWeight = FontWeight.Bold, maxLines = 1, softWrap = false)
+                        listOf(
+                            "Surveillés ($monitoredCount)",
+                            "Tous ($totalVisibleCount)",
+                            "Masqués ($hiddenCount)"
+                        ).forEachIndexed { idx, label ->
+                            val isSelected = channelFilterIndex == idx
+                            Button(
+                                onClick = { channelFilterIndex = idx },
+                                modifier = Modifier.weight(1f),
+                                shape = RoundedCornerShape(8.dp),
+                                colors = ButtonDefaults.buttonColors(
+                                    containerColor = if (isSelected) TelegramBlue else ElegantDarkCard,
+                                    contentColor = if (isSelected) Color.White else ElegantTextSecondary
+                                ),
+                                contentPadding = PaddingValues(horizontal = 4.dp, vertical = 6.dp)
+                            ) {
+                                Text(label, fontSize = 11.sp, fontWeight = FontWeight.Bold, maxLines = 1)
+                            }
+                        }
                     }
                 }
             }
 
-            if (channels.isEmpty()) {
+            val displayedChannels = when (channelFilterIndex) {
+                0 -> channels.filter { it.isMonitored && !hiddenChannelIds.contains(it.channelId) }
+                1 -> channels.filter { !hiddenChannelIds.contains(it.channelId) }
+                2 -> channels.filter { hiddenChannelIds.contains(it.channelId) }
+                else -> channels
+            }
+
+            if (displayedChannels.isEmpty()) {
                 item {
                     Card(
                         modifier = Modifier.fillMaxWidth(),
@@ -705,9 +737,17 @@ fun TelegramScreen(
                         ) {
                             Icon(Icons.Default.Send, contentDescription = null, tint = ElegantTextSecondary, modifier = Modifier.size(36.dp))
                             Spacer(modifier = Modifier.height(10.dp))
-                            Text("Aucun canal Telegram configuré", color = ElegantTextPrimary, fontWeight = FontWeight.Bold)
                             Text(
-                                "Connectez votre compte ou synchronisez les canaux pour démarrer la surveillance des catalogues e-commerce.",
+                                text = when (channelFilterIndex) {
+                                    2 -> "Aucun canal masqué"
+                                    0 -> "Aucun canal surveillé"
+                                    else -> "Aucun canal Telegram configuré"
+                                },
+                                color = ElegantTextPrimary,
+                                fontWeight = FontWeight.Bold
+                            )
+                            Text(
+                                text = "Connectez votre compte ou synchronisez les canaux pour démarrer la surveillance des catalogues e-commerce.",
                                 color = ElegantTextSecondary,
                                 style = MaterialTheme.typography.bodySmall,
                                 modifier = Modifier.padding(top = 4.dp)
@@ -716,12 +756,13 @@ fun TelegramScreen(
                     }
                 }
             } else {
-                items(channels, key = { it.id }) { channel ->
+                items(displayedChannels, key = { it.id }) { channel ->
+                    val isHidden = hiddenChannelIds.contains(channel.channelId)
                     Card(
                         modifier = Modifier.fillMaxWidth().testTag("telegram_channel_item_${channel.id}"),
                         shape = RoundedCornerShape(14.dp),
                         colors = CardDefaults.cardColors(containerColor = ElegantDarkSurface),
-                        border = BorderStroke(1.dp, if (channel.isMonitored) TelegramBlue.copy(alpha = 0.35f) else ElegantDarkBorder)
+                        border = BorderStroke(1.dp, if (channel.isMonitored && !isHidden) TelegramBlue.copy(alpha = 0.35f) else ElegantDarkBorder)
                     ) {
                         Column(modifier = Modifier.padding(14.dp)) {
                             Row(
@@ -759,6 +800,20 @@ fun TelegramScreen(
                                     )
                                 }
 
+                                IconButton(
+                                    onClick = { viewModel.toggleChannelVisibility(channel.channelId) },
+                                    modifier = Modifier.size(36.dp)
+                                ) {
+                                    Icon(
+                                        imageVector = if (isHidden) Icons.Default.VisibilityOff else Icons.Default.Visibility,
+                                        contentDescription = if (isHidden) "Afficher le canal" else "Masquer le canal",
+                                        tint = if (isHidden) Color(0xFFEF4444) else ElegantTextSecondary,
+                                        modifier = Modifier.size(20.dp)
+                                    )
+                                }
+
+                                Spacer(modifier = Modifier.width(4.dp))
+
                                 Switch(
                                     checked = channel.isMonitored,
                                     onCheckedChange = { viewModel.toggleChannelMonitoring(channel.id, it) },
@@ -790,24 +845,40 @@ fun TelegramScreen(
                                 }
                             }
 
-                            Spacer(modifier = Modifier.height(6.dp))
+                            Spacer(modifier = Modifier.height(8.dp))
 
                             Row(
                                 modifier = Modifier.fillMaxWidth(),
-                                horizontalArrangement = Arrangement.SpaceBetween
+                                horizontalArrangement = Arrangement.SpaceBetween,
+                                verticalAlignment = Alignment.CenterVertically
                             ) {
                                 Text(
                                     text = "${channel.memberCount} abonnés",
                                     style = MaterialTheme.typography.labelSmall,
                                     color = ElegantTextSecondary
                                 )
-                                if (channel.isMonitored) {
-                                    Text(
-                                        text = "● Surveillance active (Ingestion IA)",
-                                        style = MaterialTheme.typography.labelSmall,
-                                        color = ElegantGreenActive,
-                                        fontWeight = FontWeight.SemiBold
-                                    )
+
+                                Button(
+                                    onClick = {
+                                        exploringChannel = channel
+                                        isExploringLoading = true
+                                        exploringMessages = emptyList()
+                                        viewModel.fetchChannelRecentMessages(channel.channelId, channel.title) { msgs ->
+                                            exploringMessages = msgs
+                                            isExploringLoading = false
+                                        }
+                                    },
+                                    shape = RoundedCornerShape(8.dp),
+                                    colors = ButtonDefaults.buttonColors(
+                                        containerColor = TelegramBlue.copy(alpha = 0.15f),
+                                        contentColor = TelegramBlueLight
+                                    ),
+                                    contentPadding = PaddingValues(horizontal = 8.dp, vertical = 4.dp),
+                                    modifier = Modifier.height(30.dp)
+                                ) {
+                                    Icon(Icons.Default.Chat, contentDescription = null, modifier = Modifier.size(14.dp))
+                                    Spacer(modifier = Modifier.width(4.dp))
+                                    Text("Explorer messages", fontSize = 11.sp, fontWeight = FontWeight.SemiBold)
                                 }
                             }
                         }
@@ -876,13 +947,13 @@ fun TelegramScreen(
                             )
                             Spacer(modifier = Modifier.height(14.dp))
                             Button(
-                                onClick = { viewModel.simulateIncomingTelegramMessage() },
+                                onClick = { showTermuxDialog = true },
                                 shape = RoundedCornerShape(10.dp),
                                 colors = ButtonDefaults.buttonColors(containerColor = TelegramBlue)
                             ) {
-                                Icon(Icons.Default.Bolt, contentDescription = null, modifier = Modifier.size(16.dp))
+                                Icon(Icons.Default.Terminal, contentDescription = null, modifier = Modifier.size(16.dp))
                                 Spacer(modifier = Modifier.width(6.dp))
-                                Text("Générer un arrivage test", fontWeight = FontWeight.Bold, fontSize = 12.sp)
+                                Text("Voir Guide Bridge Termux", fontWeight = FontWeight.Bold, fontSize = 12.sp)
                             }
                         }
                     }
@@ -1185,8 +1256,26 @@ fun TelegramScreen(
                         modifier = Modifier.fillMaxWidth()
                     ) {
                         Column(modifier = Modifier.padding(10.dp)) {
-                            Text("Commande 1 : Installation Telethon", color = TelegramBlueLight, fontSize = 11.sp, fontWeight = FontWeight.Bold)
-                            Text(TelegramBridgeScript.INSTALL_COMMAND, color = Color.Green, fontSize = 11.sp)
+                            Row(
+                                modifier = Modifier.fillMaxWidth(),
+                                horizontalArrangement = Arrangement.SpaceBetween,
+                                verticalAlignment = Alignment.CenterVertically
+                            ) {
+                                Text("Installation + Lancement (1 clic)", color = TelegramBlueLight, fontSize = 11.sp, fontWeight = FontWeight.Bold)
+                                IconButton(
+                                    onClick = {
+                                        val cleanCmd = TelegramBridgeScript.COMPLETE_TERMUX_COMMAND.trim()
+                                        val clipboard = context.getSystemService(Context.CLIPBOARD_SERVICE) as ClipboardManager
+                                        clipboard.setPrimaryClip(ClipData.newPlainText("Telegram Full Install", cleanCmd))
+                                        Toast.makeText(context, "Commande complète copiée !", Toast.LENGTH_SHORT).show()
+                                    },
+                                    modifier = Modifier.size(24.dp)
+                                ) {
+                                    Icon(Icons.Default.ContentCopy, contentDescription = "Copier", tint = TelegramBlueLight, modifier = Modifier.size(16.dp))
+                                }
+                            }
+                            Spacer(modifier = Modifier.height(4.dp))
+                            Text(TelegramBridgeScript.COMPLETE_TERMUX_COMMAND, color = Color.Green, fontSize = 10.sp, fontFamily = FontFamily.Monospace)
                         }
                     }
 
@@ -1196,8 +1285,37 @@ fun TelegramScreen(
                         modifier = Modifier.fillMaxWidth()
                     ) {
                         Column(modifier = Modifier.padding(10.dp)) {
-                            Text("Port d'écoute : 8088 (Isolé de WhatsApp)", color = ElegantOrangeNotice, fontSize = 11.sp, fontWeight = FontWeight.Bold)
-                            Text("Le bridge tournera en local et communiquera avec cette app.", color = Color.LightGray, fontSize = 11.sp)
+                            Row(
+                                modifier = Modifier.fillMaxWidth(),
+                                horizontalArrangement = Arrangement.SpaceBetween,
+                                verticalAlignment = Alignment.CenterVertically
+                            ) {
+                                Text("Démarrage Rapide (si déjà installé)", color = ElegantOrangeNotice, fontSize = 11.sp, fontWeight = FontWeight.Bold)
+                                IconButton(
+                                    onClick = {
+                                        val cleanCmd = TelegramBridgeScript.FAST_START_COMMAND.trim()
+                                        val clipboard = context.getSystemService(Context.CLIPBOARD_SERVICE) as ClipboardManager
+                                        clipboard.setPrimaryClip(ClipData.newPlainText("Telegram Fast Start", cleanCmd))
+                                        Toast.makeText(context, "Commande rapide copiée !", Toast.LENGTH_SHORT).show()
+                                    },
+                                    modifier = Modifier.size(24.dp)
+                                ) {
+                                    Icon(Icons.Default.ContentCopy, contentDescription = "Copier", tint = ElegantOrangeNotice, modifier = Modifier.size(16.dp))
+                                }
+                            }
+                            Spacer(modifier = Modifier.height(4.dp))
+                            Text(TelegramBridgeScript.FAST_START_COMMAND, color = Color(0xFFFFB74D), fontSize = 10.sp, fontFamily = FontFamily.Monospace)
+                        }
+                    }
+
+                    Surface(
+                        shape = RoundedCornerShape(8.dp),
+                        color = Color.Black,
+                        modifier = Modifier.fillMaxWidth()
+                    ) {
+                        Column(modifier = Modifier.padding(10.dp)) {
+                            Text("Port d'écoute : 8088 (Isolé de WhatsApp sur 8081)", color = TelegramBlue, fontSize = 11.sp, fontWeight = FontWeight.Bold)
+                            Text("Le bridge Python tourne en local et transmet les catalogues au RAG sans aucun serveur externe.", color = Color.LightGray, fontSize = 10.sp)
                         }
                     }
                 }
@@ -1205,23 +1323,150 @@ fun TelegramScreen(
             confirmButton = {
                 Button(
                     onClick = {
-                        val cleanCmd = TelegramBridgeScript.INSTALL_COMMAND.trim()
+                        val cleanCmd = TelegramBridgeScript.COMPLETE_TERMUX_COMMAND.trim()
                         val clipboard = context.getSystemService(Context.CLIPBOARD_SERVICE) as ClipboardManager
                         clipboard.setPrimaryClip(ClipData.newPlainText("Telegram Install", cleanCmd))
-                        android.util.Log.d("TelegramScreen", "Copied to clipboard: '$cleanCmd'")
-                        Toast.makeText(context, "Commande copiée !", Toast.LENGTH_SHORT).show()
+                        Toast.makeText(context, "Commande complète copiée !", Toast.LENGTH_SHORT).show()
                         showTermuxDialog = false
                     },
                     colors = ButtonDefaults.buttonColors(containerColor = TelegramBlue)
                 ) {
                     Icon(Icons.Default.ContentCopy, contentDescription = null, modifier = Modifier.size(16.dp))
                     Spacer(modifier = Modifier.width(6.dp))
-                    Text("Copier Commande", fontWeight = FontWeight.Bold)
+                    Text("Copier Tout", fontWeight = FontWeight.Bold)
                 }
             },
             dismissButton = {
                 TextButton(onClick = { showTermuxDialog = false }) {
                     Text("Fermer", color = ElegantTextSecondary)
+                }
+            },
+            containerColor = ElegantDarkSurface
+        )
+    }
+
+    // --- DIALOG EXPLORATION DU CANAL ---
+    exploringChannel?.let { ch ->
+        AlertDialog(
+            onDismissRequest = { exploringChannel = null },
+            title = {
+                Row(verticalAlignment = Alignment.CenterVertically) {
+                    Text(if (ch.isChannel) "📢 " else "👥 ", fontSize = 20.sp)
+                    Spacer(modifier = Modifier.width(6.dp))
+                    Column {
+                        Text(
+                            text = ch.title,
+                            fontWeight = FontWeight.Bold,
+                            color = ElegantTextPrimary,
+                            maxLines = 1,
+                            overflow = TextOverflow.Ellipsis
+                        )
+                        Text(
+                            text = if (ch.username.isNotBlank()) "@${ch.username}" else "ID: ${ch.channelId}",
+                            style = MaterialTheme.typography.bodySmall,
+                            color = TelegramBlueLight
+                        )
+                    }
+                }
+            },
+            text = {
+                Column(
+                    modifier = Modifier.fillMaxWidth().height(360.dp),
+                    verticalArrangement = Arrangement.spacedBy(10.dp)
+                ) {
+                    Row(
+                        modifier = Modifier.fillMaxWidth(),
+                        horizontalArrangement = Arrangement.SpaceBetween,
+                        verticalAlignment = Alignment.CenterVertically
+                    ) {
+                        Text(
+                            text = "Messages récents (Telethon)",
+                            style = MaterialTheme.typography.labelMedium,
+                            color = ElegantTextSecondary
+                        )
+                        IconButton(
+                            onClick = {
+                                isExploringLoading = true
+                                viewModel.fetchChannelRecentMessages(ch.channelId, ch.title) { msgs ->
+                                    exploringMessages = msgs
+                                    isExploringLoading = false
+                                }
+                            }
+                        ) {
+                            Icon(Icons.Default.Refresh, contentDescription = "Actualiser", tint = TelegramBlue, modifier = Modifier.size(18.dp))
+                        }
+                    }
+
+                    if (isExploringLoading) {
+                        Box(modifier = Modifier.fillMaxSize(), contentAlignment = Alignment.Center) {
+                            Column(horizontalAlignment = Alignment.CenterHorizontally) {
+                                CircularProgressIndicator(color = TelegramBlue, modifier = Modifier.size(32.dp))
+                                Spacer(modifier = Modifier.height(8.dp))
+                                Text("Récupération des messages Telethon...", fontSize = 12.sp, color = ElegantTextSecondary)
+                            }
+                        }
+                    } else if (exploringMessages.isEmpty()) {
+                        Box(modifier = Modifier.fillMaxSize(), contentAlignment = Alignment.Center) {
+                            Column(horizontalAlignment = Alignment.CenterHorizontally, modifier = Modifier.padding(16.dp)) {
+                                Icon(Icons.Default.Chat, contentDescription = null, tint = ElegantTextSecondary, modifier = Modifier.size(36.dp))
+                                Spacer(modifier = Modifier.height(8.dp))
+                                Text("Aucun message récupéré.", color = ElegantTextPrimary, fontWeight = FontWeight.Bold, fontSize = 13.sp)
+                                Text(
+                                    "Vérifiez que le bridge Termux Telethon est démarré et que le compte est connecté.",
+                                    color = ElegantTextSecondary,
+                                    fontSize = 11.sp,
+                                    textAlign = androidx.compose.ui.text.style.TextAlign.Center
+                                )
+                            }
+                        }
+                    } else {
+                        LazyColumn(
+                            verticalArrangement = Arrangement.spacedBy(8.dp),
+                            modifier = Modifier.fillMaxSize()
+                        ) {
+                            items(exploringMessages, key = { it.id }) { msg ->
+                                Surface(
+                                    shape = RoundedCornerShape(10.dp),
+                                    color = ElegantDarkCard,
+                                    border = BorderStroke(1.dp, ElegantDarkBorder),
+                                    modifier = Modifier.fillMaxWidth()
+                                ) {
+                                    Column(modifier = Modifier.padding(10.dp)) {
+                                        Row(
+                                            modifier = Modifier.fillMaxWidth(),
+                                            horizontalArrangement = Arrangement.SpaceBetween
+                                        ) {
+                                            Text(
+                                                text = msg.senderName.ifBlank { "Auteur" },
+                                                fontWeight = FontWeight.Bold,
+                                                fontSize = 11.sp,
+                                                color = TelegramBlueLight
+                                            )
+                                            Text(
+                                                text = SimpleDateFormat("HH:mm", Locale.getDefault()).format(Date(msg.timestamp)),
+                                                fontSize = 10.sp,
+                                                color = ElegantTextSecondary
+                                            )
+                                        }
+                                        Spacer(modifier = Modifier.height(4.dp))
+                                        Text(
+                                            text = msg.text,
+                                            fontSize = 12.sp,
+                                            color = ElegantTextPrimary
+                                        )
+                                    }
+                                }
+                            }
+                        }
+                    }
+                }
+            },
+            confirmButton = {
+                Button(
+                    onClick = { exploringChannel = null },
+                    colors = ButtonDefaults.buttonColors(containerColor = TelegramBlue)
+                ) {
+                    Text("Fermer")
                 }
             },
             containerColor = ElegantDarkSurface

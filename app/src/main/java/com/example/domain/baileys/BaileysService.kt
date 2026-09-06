@@ -131,12 +131,16 @@ class BaileysService(private val database: AppDatabase) {
         // 4. Retrieve enabled MCP tools
         val mcpTools = mcpDao.getEnabledTools()
 
-        // 5. Execute Local AI Edge Inference
+        // 5. Retrieve dynamic product catalog (e-commerce & Telegram ingested products)
+        val products = database.commerceDao().getAllProductsList()
+
+        // 6. Execute Local AI Edge Inference
         val inferenceResult = AiEdgeQuantizerEngine.runAgentInference(
             agent = selectedAgent,
             customerQuery = messageText,
             knowledgeSources = knowledgeSources,
-            mcpTools = mcpTools
+            mcpTools = mcpTools,
+            products = products
         )
 
         // 6. Record agent response

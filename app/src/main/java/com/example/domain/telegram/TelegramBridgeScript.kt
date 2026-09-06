@@ -4,11 +4,19 @@ object TelegramBridgeScript {
 
     const val TELEGRAM_DEFAULT_PORT = 8088
 
-    const val INSTALL_COMMAND = "pkg update -y && pkg install python -y && pip install telethon aiohttp"
+    /**
+     * Commande Termux complète d'initialisation (installation Python + dépendances + téléchargement + démarrage du bridge Python Telethon)
+     */
+    const val COMPLETE_TERMUX_COMMAND = "killall python 2>/dev/null ; pkg update -y && pkg install -y python curl && pip install --upgrade telethon aiohttp && mkdir -p ~/tg-bridge && cd ~/tg-bridge && (curl -s http://127.0.0.1:8081/telegram-bridge.py > telegram-bridge.py 2>/dev/null || curl -s http://127.0.0.1:8080/telegram-bridge.py > telegram-bridge.py 2>/dev/null || curl -s http://127.0.0.1:8082/telegram-bridge.py > telegram-bridge.py) && python telegram-bridge.py"
 
-    const val LAUNCH_COMMAND = "curl -sSL -o telegram-bridge.py http://127.0.0.1:8081/telegram-bridge.py && python telegram-bridge.py"
+    /**
+     * Commande rapide de démarrage (si Python et les packages sont déjà installés dans Termux)
+     */
+    const val FAST_START_COMMAND = "killall python 2>/dev/null ; mkdir -p ~/tg-bridge && cd ~/tg-bridge && (curl -s http://127.0.0.1:8081/telegram-bridge.py > telegram-bridge.py 2>/dev/null || curl -s http://127.0.0.1:8080/telegram-bridge.py > telegram-bridge.py 2>/dev/null || curl -s http://127.0.0.1:8082/telegram-bridge.py > telegram-bridge.py) && python telegram-bridge.py"
 
-    const val COMPLETE_TERMUX_COMMAND = "pkg update -y && pkg install python -y && pip install telethon aiohttp && curl -sSL -o telegram-bridge.py http://127.0.0.1:8081/telegram-bridge.py && python telegram-bridge.py"
+    const val INSTALL_COMMAND = COMPLETE_TERMUX_COMMAND
+
+    const val LAUNCH_COMMAND = FAST_START_COMMAND
 
     val PYTHON_BRIDGE_SCRIPT = """# =========================================================================
 # AI Edge - Telegram Telethon MTProto Real Bridge for Termux / Python Server

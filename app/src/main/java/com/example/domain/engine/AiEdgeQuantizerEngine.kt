@@ -100,15 +100,17 @@ object AiEdgeQuantizerEngine {
 
     /**
      * Executes local edge inference combining the agent's prompt, RAG knowledge sources,
-     * customer query, and active MCP tools using EdgeNeuralReasoningEngine.
+     * customer query, dynamic product catalog, and active MCP tools using EdgeNeuralReasoningEngine.
      */
     suspend fun runAgentInference(
         agent: AgentEntity,
         customerQuery: String,
         knowledgeSources: List<KnowledgeSourceEntity>,
-        mcpTools: List<McpToolEntity>
+        mcpTools: List<McpToolEntity>,
+        products: List<com.example.data.local.entity.ProductEntity> = emptyList()
     ): InferenceResult = withContext(Dispatchers.Default) {
         val activeSources = if (agent.ragEnabled) knowledgeSources else emptyList()
+        val activeProducts = if (agent.ragEnabled) products else emptyList()
         val modelDisplayName = resolveModelDisplayName(agent.modelId)
         val detailedOutput = EdgeNeuralReasoningEngine.generateInference(
             modelId = agent.modelId,
@@ -119,6 +121,7 @@ object AiEdgeQuantizerEngine {
             backend = "NPU Hexagon",
             knowledgeSources = activeSources,
             mcpTools = mcpTools,
+            products = activeProducts,
             agentName = agent.name,
             agentRole = agent.role
         )
