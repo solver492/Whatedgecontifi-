@@ -15,14 +15,20 @@ import androidx.compose.foundation.layout.Spacer
 import androidx.compose.foundation.layout.fillMaxSize
 import androidx.compose.foundation.layout.fillMaxWidth
 import androidx.compose.foundation.layout.height
+import androidx.compose.foundation.layout.offset
 import androidx.compose.foundation.layout.padding
 import androidx.compose.foundation.layout.size
 import androidx.compose.foundation.layout.width
 import androidx.compose.foundation.layout.widthIn
 import androidx.compose.foundation.lazy.LazyColumn
 import androidx.compose.foundation.lazy.items
+import androidx.compose.foundation.gestures.detectHorizontalDragGestures
 import androidx.compose.foundation.shape.CircleShape
 import androidx.compose.foundation.shape.RoundedCornerShape
+import androidx.compose.ui.input.pointer.pointerInput
+import androidx.compose.ui.unit.IntOffset
+import kotlin.math.roundToInt
+import androidx.compose.material.icons.filled.Close
 import androidx.compose.animation.AnimatedVisibility
 import androidx.compose.animation.expandVertically
 import androidx.compose.animation.fadeIn
@@ -81,6 +87,7 @@ import androidx.compose.material3.TextButton
 import androidx.compose.runtime.Composable
 import androidx.compose.runtime.collectAsState
 import androidx.compose.runtime.getValue
+import androidx.compose.runtime.mutableFloatStateOf
 import androidx.compose.runtime.mutableIntStateOf
 import androidx.compose.runtime.mutableStateOf
 import androidx.compose.runtime.remember
@@ -247,6 +254,11 @@ fun LiveChatSimulator(
     var showBindDialog by remember { mutableStateOf(false) }
     var feedbackToast by remember { mutableStateOf<String?>(null) }
     var isTopExpanded by rememberSaveable { mutableStateOf(true) }
+    var isInstanceFilterExpanded by rememberSaveable { mutableStateOf(false) }
+    var isTermuxBannerVisible by rememberSaveable { mutableStateOf(true) }
+    var isAgentBannerVisible by rememberSaveable { mutableStateOf(true) }
+    var termuxDragOffset by remember { mutableFloatStateOf(0f) }
+    var agentDragOffset by remember { mutableFloatStateOf(0f) }
     // 0 = HIDDEN (Monitoring plein écran), 1 = COMPACT (Barre de frappe seule), 2 = FULL (Frappe + Suggestions + Sélecteurs)
     var bottomPanelState by rememberSaveable { mutableIntStateOf(2) }
 
@@ -366,72 +378,203 @@ fun LiveChatSimulator(
             exit = shrinkVertically() + fadeOut()
         ) {
             Column(modifier = Modifier.fillMaxWidth()) {
-                // Top Row: Instance selector dropdown, Sync button & clear button
+                // Top Row: Instance selector (compact miniature when collapsed or full dropdown when expanded), Sync button & clear button
                 Row(
                     modifier = Modifier.fillMaxWidth(),
                     verticalAlignment = Alignment.CenterVertically,
                     horizontalArrangement = Arrangement.spacedBy(8.dp)
                 ) {
-                    ExposedDropdownMenuBox(
-                        expanded = expandedInstanceMenu,
-                        onExpandedChange = { expandedInstanceMenu = it },
-                        modifier = Modifier.weight(1f)
-                    ) {
-                        OutlinedTextField(
-                            value = if (activeInstanceId == "ALL" || currentInstance == null) {
-                                "🌐 Toutes les instances (${messages.size} msgs)"
-                            } else {
-                                "${currentInstance.name} (${currentInstance.phoneNumber})"
-                            },
-                            onValueChange = {},
-                            readOnly = true,
-                            label = { Text("Filtrer l'instance WhatsApp") },
-                            shape = RoundedCornerShape(16.dp),
-                            trailingIcon = { ExposedDropdownMenuDefaults.TrailingIcon(expanded = expandedInstanceMenu) },
-                            modifier = Modifier
-                                .fillMaxWidth()
-                                .menuAnchor(MenuAnchorType.PrimaryNotEditable)
-                        )
-
-                        ExposedDropdownMenu(
+                    if (!isInstanceFilterExpanded) {
+                        // Miniature Instance Filter Button to save screen space
+                        ExposedDropdownMenuBox(
                             expanded = expandedInstanceMenu,
-                            onDismissRequest = { expandedInstanceMenu = false },
-                            modifier = Modifier.background(ElegantDarkSurface)
+                            onExpandedChange = { expandedInstanceMenu = it },
+                            modifier = Modifier.weight(1f)
                         ) {
-                            DropdownMenuItem(
-                                text = {
-                                    Text(
-                                        "🌐 Toutes les instances (Tous les messages reçus)",
-                                        color = ElegantPurpleAccent,
-                                        fontWeight = FontWeight.Bold
-                                    )
-                                },
-                                onClick = {
-                                    activeInstanceId = "ALL"
-                                    expandedInstanceMenu = false
+                            Surface(
+                                shape = RoundedCornerShape(12.dp),
+                                color = ElegantDarkSurfaceVariant,
+                                border = BorderStroke(1.dp, ElegantPurpleAccent.copy(alpha = 0.4f)),
+                                modifier = Modifier
+                                    .fillMaxWidth()
+                                    .menuAnchor(MenuAnchorType.PrimaryNotEditable)
+                            ) {
+                                Row(
+                                    modifier = Modifier.padding(horizontal = 10.dp, vertical = 9.dp),
+                                    verticalAlignment = Alignment.CenterVertically,
+                                    horizontalArrangement = Arrangement.SpaceBetween
+                                ) {
+                                    Row(verticalAlignment = Alignment.CenterVertically, modifier = Modifier.weight(1f)) {
+                                        Icon(
+                                            imageVector = Icons.Default.FilterList,
+                                            contentDescription = null,
+                                            tint = ElegantPurpleAccent,
+                                            modifier = Modifier.size(16.dp)
+                                        )
+                                        Spacer(modifier = Modifier.width(6.dp))
+                                        Text(
+                                            text = if (activeInstanceId == "ALL" || currentInstance == null) {
+                                                "Filtre : Toutes (${messages.size} msgs)"
+                                            } else {
+                                                "Filtre : ${currentInstance.name}"
+                                            },
+                                            style = MaterialTheme.typography.labelSmall,
+                                            fontWeight = FontWeight.Bold,
+                                            color = ElegantTextPrimary,
+                                            fontSize = 11.sp,
+                                            maxLines = 1,
+                                            overflow = TextOverflow.Ellipsis
+                                        )
+                                    }
+                                    Row(verticalAlignment = Alignment.CenterVertically) {
+                                        Icon(
+                                            imageVector = Icons.Default.KeyboardArrowDown,
+                                            contentDescription = "Ouvrir filtre",
+                                            tint = ElegantPurpleAccent,
+                                            modifier = Modifier.size(16.dp)
+                                        )
+                                    }
                                 }
-                            )
-                            instances.forEach { inst ->
+                            }
+
+                            ExposedDropdownMenu(
+                                expanded = expandedInstanceMenu,
+                                onDismissRequest = { expandedInstanceMenu = false },
+                                modifier = Modifier.background(ElegantDarkSurface)
+                            ) {
                                 DropdownMenuItem(
                                     text = {
-                                        Row(verticalAlignment = Alignment.CenterVertically) {
-                                            Box(
-                                                modifier = Modifier
-                                                    .size(8.dp)
-                                                    .clip(CircleShape)
-                                                    .background(if (inst.status == "CONNECTED") ElegantGreenActive else ElegantRedAlert)
-                                            )
-                                            Spacer(modifier = Modifier.width(8.dp))
-                                            Text("${inst.name} - ${inst.phoneNumber} (${inst.status})", color = ElegantTextPrimary)
-                                        }
+                                        Text(
+                                            "🌐 Toutes les instances (Tous les messages)",
+                                            color = ElegantPurpleAccent,
+                                            fontWeight = FontWeight.Bold,
+                                            fontSize = 12.sp
+                                        )
                                     },
                                     onClick = {
-                                        activeInstanceId = inst.id
-                                        viewModel.selectInstance(inst.id)
+                                        activeInstanceId = "ALL"
                                         expandedInstanceMenu = false
                                     }
                                 )
+                                instances.forEach { inst ->
+                                    DropdownMenuItem(
+                                        text = {
+                                            Row(verticalAlignment = Alignment.CenterVertically) {
+                                                Box(
+                                                    modifier = Modifier
+                                                        .size(8.dp)
+                                                        .clip(CircleShape)
+                                                        .background(if (inst.status == "CONNECTED") ElegantGreenActive else ElegantRedAlert)
+                                                )
+                                                Spacer(modifier = Modifier.width(8.dp))
+                                                Text("${inst.name} - ${inst.phoneNumber} (${inst.status})", color = ElegantTextPrimary, fontSize = 12.sp)
+                                            }
+                                        },
+                                        onClick = {
+                                            activeInstanceId = inst.id
+                                            viewModel.selectInstance(inst.id)
+                                            expandedInstanceMenu = false
+                                        }
+                                    )
+                                }
                             }
+                        }
+
+                        // Small button to unfold full instance bar if needed
+                        IconButton(
+                            onClick = { isInstanceFilterExpanded = true },
+                            modifier = Modifier
+                                .size(38.dp)
+                                .clip(RoundedCornerShape(10.dp))
+                                .background(ElegantDarkSurfaceVariant)
+                                .border(1.dp, ElegantDarkBorder, RoundedCornerShape(10.dp))
+                        ) {
+                            Icon(
+                                imageVector = Icons.Default.KeyboardArrowDown,
+                                contentDescription = "Agrandir le filtre",
+                                tint = ElegantTextSecondary,
+                                modifier = Modifier.size(18.dp)
+                            )
+                        }
+                    } else {
+                        // Expanded Full Instance Selector with Collapse Button
+                        ExposedDropdownMenuBox(
+                            expanded = expandedInstanceMenu,
+                            onExpandedChange = { expandedInstanceMenu = it },
+                            modifier = Modifier.weight(1f)
+                        ) {
+                            OutlinedTextField(
+                                value = if (activeInstanceId == "ALL" || currentInstance == null) {
+                                    "🌐 Toutes les instances (${messages.size} msgs)"
+                                } else {
+                                    "${currentInstance.name} (${currentInstance.phoneNumber})"
+                                },
+                                onValueChange = {},
+                                readOnly = true,
+                                label = { Text("Filtrer l'instance WhatsApp") },
+                                shape = RoundedCornerShape(16.dp),
+                                trailingIcon = { ExposedDropdownMenuDefaults.TrailingIcon(expanded = expandedInstanceMenu) },
+                                modifier = Modifier
+                                    .fillMaxWidth()
+                                    .menuAnchor(MenuAnchorType.PrimaryNotEditable)
+                            )
+
+                            ExposedDropdownMenu(
+                                expanded = expandedInstanceMenu,
+                                onDismissRequest = { expandedInstanceMenu = false },
+                                modifier = Modifier.background(ElegantDarkSurface)
+                            ) {
+                                DropdownMenuItem(
+                                    text = {
+                                        Text(
+                                            "🌐 Toutes les instances (Tous les messages reçus)",
+                                            color = ElegantPurpleAccent,
+                                            fontWeight = FontWeight.Bold
+                                        )
+                                    },
+                                    onClick = {
+                                        activeInstanceId = "ALL"
+                                        expandedInstanceMenu = false
+                                    }
+                                )
+                                instances.forEach { inst ->
+                                    DropdownMenuItem(
+                                        text = {
+                                            Row(verticalAlignment = Alignment.CenterVertically) {
+                                                Box(
+                                                    modifier = Modifier
+                                                        .size(8.dp)
+                                                        .clip(CircleShape)
+                                                        .background(if (inst.status == "CONNECTED") ElegantGreenActive else ElegantRedAlert)
+                                                )
+                                                Spacer(modifier = Modifier.width(8.dp))
+                                                Text("${inst.name} - ${inst.phoneNumber} (${inst.status})", color = ElegantTextPrimary)
+                                            }
+                                        },
+                                        onClick = {
+                                            activeInstanceId = inst.id
+                                            viewModel.selectInstance(inst.id)
+                                            expandedInstanceMenu = false
+                                        }
+                                    )
+                                }
+                            }
+                        }
+
+                        // Collapse to miniature button
+                        IconButton(
+                            onClick = { isInstanceFilterExpanded = false },
+                            modifier = Modifier
+                                .size(46.dp)
+                                .clip(RoundedCornerShape(14.dp))
+                                .background(ElegantPurpleAccent.copy(alpha = 0.2f))
+                                .border(1.dp, ElegantPurpleAccent.copy(alpha = 0.6f), RoundedCornerShape(14.dp))
+                        ) {
+                            Icon(
+                                imageVector = Icons.Default.KeyboardArrowUp,
+                                contentDescription = "Masquer le filtre d'instance",
+                                tint = ElegantPurpleAccent
+                            )
                         }
                     }
 
@@ -442,10 +585,10 @@ fun LiveChatSimulator(
                             feedbackToast = "Synchronisation Termux lancée..."
                         },
                         modifier = Modifier
-                            .size(46.dp)
-                            .clip(RoundedCornerShape(14.dp))
+                            .size(if (!isInstanceFilterExpanded) 38.dp else 46.dp)
+                            .clip(RoundedCornerShape(if (!isInstanceFilterExpanded) 10.dp else 14.dp))
                             .background(if (isTermuxOnline) ElegantGreenActive.copy(alpha = 0.2f) else ElegantDarkSurfaceVariant)
-                            .border(1.dp, if (isTermuxOnline) ElegantGreenActive.copy(alpha = 0.6f) else ElegantDarkBorder, RoundedCornerShape(14.dp))
+                            .border(1.dp, if (isTermuxOnline) ElegantGreenActive.copy(alpha = 0.6f) else ElegantDarkBorder, RoundedCornerShape(if (!isInstanceFilterExpanded) 10.dp else 14.dp))
                     ) {
                         Icon(
                             imageVector = Icons.Default.Sync,
@@ -458,10 +601,10 @@ fun LiveChatSimulator(
                     IconButton(
                         onClick = { showClearConfirmation = true },
                         modifier = Modifier
-                            .size(46.dp)
-                            .clip(RoundedCornerShape(14.dp))
+                            .size(if (!isInstanceFilterExpanded) 38.dp else 46.dp)
+                            .clip(RoundedCornerShape(if (!isInstanceFilterExpanded) 10.dp else 14.dp))
                             .background(ElegantDarkSurfaceVariant)
-                            .border(1.dp, ElegantDarkBorder, RoundedCornerShape(14.dp))
+                            .border(1.dp, ElegantDarkBorder, RoundedCornerShape(if (!isInstanceFilterExpanded) 10.dp else 14.dp))
                     ) {
                         Icon(
                             imageVector = Icons.Default.DeleteSweep,
@@ -471,114 +614,256 @@ fun LiveChatSimulator(
                     }
                 }
 
-                Spacer(modifier = Modifier.height(8.dp))
+                Spacer(modifier = Modifier.height(6.dp))
 
-                // Live Termux status banner
-                Surface(
-                    shape = RoundedCornerShape(12.dp),
-                    color = if (isTermuxOnline) ElegantGreenActive.copy(alpha = 0.12f) else ElegantDarkSurface,
-                    border = BorderStroke(1.dp, if (isTermuxOnline) ElegantGreenActive.copy(alpha = 0.5f) else ElegantDarkBorder),
-                    modifier = Modifier.fillMaxWidth()
-                ) {
+                // Miniature restore pills when either banner is swiped/hidden
+                if (!isTermuxBannerVisible || !isAgentBannerVisible) {
                     Row(
-                        modifier = Modifier.padding(horizontal = 12.dp, vertical = 7.dp),
-                        verticalAlignment = Alignment.CenterVertically,
-                        horizontalArrangement = Arrangement.SpaceBetween
+                        modifier = Modifier
+                            .fillMaxWidth()
+                            .padding(bottom = 6.dp),
+                        horizontalArrangement = Arrangement.spacedBy(6.dp),
+                        verticalAlignment = Alignment.CenterVertically
                     ) {
-                        Row(verticalAlignment = Alignment.CenterVertically, modifier = Modifier.weight(1f)) {
-                            Box(
+                        if (!isTermuxBannerVisible) {
+                            Surface(
+                                shape = RoundedCornerShape(10.dp),
+                                color = if (isTermuxOnline) ElegantGreenActive.copy(alpha = 0.15f) else ElegantDarkSurfaceVariant,
+                                border = BorderStroke(1.dp, if (isTermuxOnline) ElegantGreenActive.copy(alpha = 0.5f) else ElegantDarkBorder),
                                 modifier = Modifier
-                                    .size(8.dp)
-                                    .clip(CircleShape)
-                                    .background(if (isTermuxOnline) ElegantGreenActive else Color.Gray)
-                            )
-                            Spacer(modifier = Modifier.width(8.dp))
-                            Text(
-                                text = if (isTermuxOnline) "Termux Baileys Connecté • ${filteredMessages.size} messages reçus" else "Termux en attente • Port app :$bridgePort",
-                                style = MaterialTheme.typography.labelSmall,
-                                fontWeight = FontWeight.Bold,
-                                color = if (isTermuxOnline) ElegantGreenActive else ElegantTextSecondary,
-                                maxLines = 1,
-                                overflow = TextOverflow.Ellipsis
-                            )
+                                    .clip(RoundedCornerShape(10.dp))
+                                    .clickable { isTermuxBannerVisible = true }
+                            ) {
+                                Row(
+                                    modifier = Modifier.padding(horizontal = 8.dp, vertical = 5.dp),
+                                    verticalAlignment = Alignment.CenterVertically
+                                ) {
+                                    Box(
+                                        modifier = Modifier
+                                            .size(7.dp)
+                                            .clip(CircleShape)
+                                            .background(if (isTermuxOnline) ElegantGreenActive else Color.Gray)
+                                    )
+                                    Spacer(modifier = Modifier.width(5.dp))
+                                    Text(
+                                        text = if (isTermuxOnline) "Termux Baileys ↗" else "Termux :$bridgePort ↗",
+                                        fontSize = 10.sp,
+                                        fontWeight = FontWeight.Bold,
+                                        color = if (isTermuxOnline) ElegantGreenActive else ElegantTextSecondary
+                                    )
+                                }
+                            }
                         }
-                        TextButton(
-                            onClick = {
-                                viewModel.syncWithTermux()
-                                feedbackToast = "Actualisation..."
-                            },
-                            modifier = Modifier.height(28.dp)
-                        ) {
-                            Text("Actualiser", fontSize = 11.sp, color = if (isTermuxOnline) ElegantGreenActive else EdgeAiCyan, fontWeight = FontWeight.Bold)
+
+                        if (!isAgentBannerVisible) {
+                            Surface(
+                                shape = RoundedCornerShape(10.dp),
+                                color = ElegantPurpleAccent.copy(alpha = 0.15f),
+                                border = BorderStroke(1.dp, ElegantPurpleAccent.copy(alpha = 0.5f)),
+                                modifier = Modifier
+                                    .clip(RoundedCornerShape(10.dp))
+                                    .clickable { isAgentBannerVisible = true }
+                            ) {
+                                Row(
+                                    modifier = Modifier.padding(horizontal = 8.dp, vertical = 5.dp),
+                                    verticalAlignment = Alignment.CenterVertically
+                                ) {
+                                    Icon(
+                                        imageVector = Icons.Default.SmartToy,
+                                        contentDescription = null,
+                                        tint = ElegantPurpleAccent,
+                                        modifier = Modifier.size(13.dp)
+                                    )
+                                    Spacer(modifier = Modifier.width(5.dp))
+                                    Text(
+                                        text = "${assignedAgent?.name ?: "Agent"} ↗",
+                                        fontSize = 10.sp,
+                                        fontWeight = FontWeight.Bold,
+                                        color = ElegantPurpleAccent
+                                    )
+                                }
+                            }
                         }
                     }
                 }
 
-                Spacer(modifier = Modifier.height(8.dp))
-
-                // AI Agent & Model Banner with direct "Brancher IA" button
-                Surface(
-                    modifier = Modifier
-                        .fillMaxWidth()
-                        .clickable {
-                            if (currentInstance != null) {
-                                showBindDialog = true
-                            } else if (instances.isNotEmpty()) {
-                                activeInstanceId = instances.first().id
-                                showBindDialog = true
-                            }
-                        },
-                    shape = RoundedCornerShape(14.dp),
-                    color = ElegantDarkSurface,
-                    border = BorderStroke(1.dp, ElegantDarkBorder)
+                // Live Termux status banner (Swipe to hide or tap close)
+                AnimatedVisibility(
+                    visible = isTermuxBannerVisible,
+                    enter = expandVertically() + fadeIn(),
+                    exit = shrinkVertically() + fadeOut()
                 ) {
-                    Row(
-                        modifier = Modifier.padding(horizontal = 12.dp, vertical = 8.dp),
-                        verticalAlignment = Alignment.CenterVertically,
-                        horizontalArrangement = Arrangement.SpaceBetween
+                    Surface(
+                        shape = RoundedCornerShape(12.dp),
+                        color = if (isTermuxOnline) ElegantGreenActive.copy(alpha = 0.12f) else ElegantDarkSurface,
+                        border = BorderStroke(1.dp, if (isTermuxOnline) ElegantGreenActive.copy(alpha = 0.5f) else ElegantDarkBorder),
+                        modifier = Modifier
+                            .fillMaxWidth()
+                            .padding(bottom = 6.dp)
+                            .offset { IntOffset(termuxDragOffset.roundToInt(), 0) }
+                            .pointerInput(Unit) {
+                                detectHorizontalDragGestures(
+                                    onDragEnd = {
+                                        if (kotlin.math.abs(termuxDragOffset) > 80f) {
+                                            isTermuxBannerVisible = false
+                                        }
+                                        termuxDragOffset = 0f
+                                    },
+                                    onDragCancel = { termuxDragOffset = 0f },
+                                    onHorizontalDrag = { _, dragAmount ->
+                                        termuxDragOffset += dragAmount
+                                    }
+                                )
+                            }
                     ) {
-                        Row(verticalAlignment = Alignment.CenterVertically, modifier = Modifier.weight(1f)) {
-                            Icon(
-                                imageVector = Icons.Default.SmartToy,
-                                contentDescription = null,
-                                tint = ElegantPurpleAccent,
-                                modifier = Modifier.size(18.dp)
-                            )
-                            Spacer(modifier = Modifier.width(8.dp))
-                            Column {
+                        Row(
+                            modifier = Modifier.padding(horizontal = 10.dp, vertical = 6.dp),
+                            verticalAlignment = Alignment.CenterVertically,
+                            horizontalArrangement = Arrangement.SpaceBetween
+                        ) {
+                            Row(verticalAlignment = Alignment.CenterVertically, modifier = Modifier.weight(1f)) {
+                                Box(
+                                    modifier = Modifier
+                                        .size(8.dp)
+                                        .clip(CircleShape)
+                                        .background(if (isTermuxOnline) ElegantGreenActive else Color.Gray)
+                                )
+                                Spacer(modifier = Modifier.width(8.dp))
                                 Text(
-                                    text = "Agent Branché : ${assignedAgent?.name ?: "Conseiller Vente (Général)"}",
+                                    text = if (isTermuxOnline) "Termux Baileys Connecté • ${filteredMessages.size} msgs reçus" else "Termux en attente • Port app :$bridgePort",
                                     style = MaterialTheme.typography.labelSmall,
                                     fontWeight = FontWeight.Bold,
-                                    color = ElegantTextPrimary,
-                                    maxLines = 1,
-                                    overflow = TextOverflow.Ellipsis
-                                )
-                                Text(
-                                    text = "Modèle Local : ${assignedAgent?.modelId ?: "gemma-2-2b-it-int4"} • ${filteredMessages.size} msgs capturés",
-                                    style = MaterialTheme.typography.labelSmall,
-                                    color = EdgeAiCyan,
-                                    fontSize = 10.sp,
+                                    color = if (isTermuxOnline) ElegantGreenActive else ElegantTextSecondary,
                                     maxLines = 1,
                                     overflow = TextOverflow.Ellipsis
                                 )
                             }
+                            Row(verticalAlignment = Alignment.CenterVertically) {
+                                TextButton(
+                                    onClick = {
+                                        viewModel.syncWithTermux()
+                                        feedbackToast = "Actualisation..."
+                                    },
+                                    modifier = Modifier.height(26.dp),
+                                    contentPadding = PaddingValues(horizontal = 6.dp, vertical = 0.dp)
+                                ) {
+                                    Text("Actualiser", fontSize = 11.sp, color = if (isTermuxOnline) ElegantGreenActive else EdgeAiCyan, fontWeight = FontWeight.Bold)
+                                }
+                                IconButton(
+                                    onClick = { isTermuxBannerVisible = false },
+                                    modifier = Modifier.size(24.dp)
+                                ) {
+                                    Icon(
+                                        imageVector = Icons.Default.Close,
+                                        contentDescription = "Masquer le bandeau Termux",
+                                        tint = ElegantTextSecondary,
+                                        modifier = Modifier.size(14.dp)
+                                    )
+                                }
+                            }
                         }
+                    }
+                }
 
-                        Surface(
-                            shape = RoundedCornerShape(8.dp),
-                            color = ElegantPurpleAccent.copy(alpha = 0.15f),
-                            border = BorderStroke(1.dp, ElegantPurpleAccent.copy(alpha = 0.5f))
+                // AI Agent & Model Banner (Swipe to hide or tap close, clickable to bind IA)
+                AnimatedVisibility(
+                    visible = isAgentBannerVisible,
+                    enter = expandVertically() + fadeIn(),
+                    exit = shrinkVertically() + fadeOut()
+                ) {
+                    Surface(
+                        modifier = Modifier
+                            .fillMaxWidth()
+                            .padding(bottom = 6.dp)
+                            .offset { IntOffset(agentDragOffset.roundToInt(), 0) }
+                            .pointerInput(Unit) {
+                                detectHorizontalDragGestures(
+                                    onDragEnd = {
+                                        if (kotlin.math.abs(agentDragOffset) > 80f) {
+                                            isAgentBannerVisible = false
+                                        }
+                                        agentDragOffset = 0f
+                                    },
+                                    onDragCancel = { agentDragOffset = 0f },
+                                    onHorizontalDrag = { _, dragAmount ->
+                                        agentDragOffset += dragAmount
+                                    }
+                                )
+                            }
+                            .clickable {
+                                if (currentInstance != null) {
+                                    showBindDialog = true
+                                } else if (instances.isNotEmpty()) {
+                                    activeInstanceId = instances.first().id
+                                    showBindDialog = true
+                                }
+                            },
+                        shape = RoundedCornerShape(14.dp),
+                        color = ElegantDarkSurface,
+                        border = BorderStroke(1.dp, ElegantDarkBorder)
+                    ) {
+                        Row(
+                            modifier = Modifier.padding(horizontal = 10.dp, vertical = 7.dp),
+                            verticalAlignment = Alignment.CenterVertically,
+                            horizontalArrangement = Arrangement.SpaceBetween
                         ) {
-                            Text(
-                                text = "Lier IA",
-                                modifier = Modifier.padding(horizontal = 8.dp, vertical = 4.dp),
-                                style = MaterialTheme.typography.labelSmall,
-                                fontWeight = FontWeight.Bold,
-                                color = ElegantPurpleAccent,
-                                maxLines = 1,
-                                softWrap = false
-                            )
+                            Row(verticalAlignment = Alignment.CenterVertically, modifier = Modifier.weight(1f)) {
+                                Icon(
+                                    imageVector = Icons.Default.SmartToy,
+                                    contentDescription = null,
+                                    tint = ElegantPurpleAccent,
+                                    modifier = Modifier.size(18.dp)
+                                )
+                                Spacer(modifier = Modifier.width(8.dp))
+                                Column {
+                                    Text(
+                                        text = "Agent Branché : ${assignedAgent?.name ?: "Conseiller Vente (Général)"}",
+                                        style = MaterialTheme.typography.labelSmall,
+                                        fontWeight = FontWeight.Bold,
+                                        color = ElegantTextPrimary,
+                                        maxLines = 1,
+                                        overflow = TextOverflow.Ellipsis
+                                    )
+                                    Text(
+                                        text = "Modèle Local : ${assignedAgent?.modelId ?: "gemma-2-2b-it-int4"} • ${filteredMessages.size} msgs capturés",
+                                        style = MaterialTheme.typography.labelSmall,
+                                        color = EdgeAiCyan,
+                                        fontSize = 10.sp,
+                                        maxLines = 1,
+                                        overflow = TextOverflow.Ellipsis
+                                    )
+                                }
+                            }
+
+                            Row(verticalAlignment = Alignment.CenterVertically) {
+                                Surface(
+                                    shape = RoundedCornerShape(8.dp),
+                                    color = ElegantPurpleAccent.copy(alpha = 0.15f),
+                                    border = BorderStroke(1.dp, ElegantPurpleAccent.copy(alpha = 0.5f))
+                                ) {
+                                    Text(
+                                        text = "Lier IA",
+                                        modifier = Modifier.padding(horizontal = 8.dp, vertical = 4.dp),
+                                        style = MaterialTheme.typography.labelSmall,
+                                        fontWeight = FontWeight.Bold,
+                                        color = ElegantPurpleAccent,
+                                        maxLines = 1,
+                                        softWrap = false
+                                    )
+                                }
+                                Spacer(modifier = Modifier.width(4.dp))
+                                IconButton(
+                                    onClick = { isAgentBannerVisible = false },
+                                    modifier = Modifier.size(24.dp)
+                                ) {
+                                    Icon(
+                                        imageVector = Icons.Default.Close,
+                                        contentDescription = "Masquer le bandeau Agent",
+                                        tint = ElegantTextSecondary,
+                                        modifier = Modifier.size(14.dp)
+                                    )
+                                }
+                            }
                         }
                     }
                 }
@@ -1030,110 +1315,133 @@ fun LiveChatSimulator(
                 }
             }
 
-            // Bottom Header with 3-State Fold / Unfold (Complet, Semi-plié frappe seule, Plié monitoring)
-            Row(
+            // Bottom Header with elegant 3-State Fold / Unfold Control (Plié, Semi-plié, Complet)
+            Surface(
+                shape = RoundedCornerShape(12.dp),
+                color = ElegantDarkSurface,
+                border = BorderStroke(1.dp, ElegantDarkBorder),
                 modifier = Modifier
                     .fillMaxWidth()
-                    .padding(top = 4.dp, bottom = 4.dp),
-                verticalAlignment = Alignment.CenterVertically,
-                horizontalArrangement = Arrangement.SpaceBetween
+                    .padding(top = 4.dp, bottom = 4.dp)
             ) {
                 Row(
-                    verticalAlignment = Alignment.CenterVertically,
                     modifier = Modifier
-                        .clip(RoundedCornerShape(8.dp))
-                        .clickable {
-                            // Cycle between states: 2 (Complet) -> 1 (Semi-plié) -> 0 (Replié) -> 2
-                            bottomPanelState = when (bottomPanelState) {
-                                2 -> 1
-                                1 -> 0
-                                else -> 2
+                        .fillMaxWidth()
+                        .padding(horizontal = 8.dp, vertical = 5.dp),
+                    verticalAlignment = Alignment.CenterVertically,
+                    horizontalArrangement = Arrangement.SpaceBetween
+                ) {
+                    Row(
+                        verticalAlignment = Alignment.CenterVertically,
+                        modifier = Modifier
+                            .clip(RoundedCornerShape(8.dp))
+                            .clickable {
+                                bottomPanelState = when (bottomPanelState) {
+                                    2 -> 1
+                                    1 -> 0
+                                    else -> 2
+                                }
+                            }
+                    ) {
+                        Icon(
+                            imageVector = Icons.Default.ChatBubbleOutline,
+                            contentDescription = null,
+                            tint = when (bottomPanelState) {
+                                2 -> ElegantGreenActive
+                                1 -> Color(0xFF00B0FF)
+                                else -> ElegantPurpleAccent
+                            },
+                            modifier = Modifier.size(15.dp)
+                        )
+                        Spacer(modifier = Modifier.width(6.dp))
+                        Text(
+                            text = when (bottomPanelState) {
+                                2 -> "Saisie Complète"
+                                1 -> "Saisie Compacte"
+                                else -> "Saisie Masquée"
+                            },
+                            style = MaterialTheme.typography.labelSmall,
+                            fontWeight = FontWeight.Bold,
+                            color = ElegantTextPrimary,
+                            fontSize = 11.sp,
+                            maxLines = 1,
+                            softWrap = false
+                        )
+                    }
+
+                    // 3-state segmented action buttons inside a styled container
+                    Surface(
+                        shape = RoundedCornerShape(10.dp),
+                        color = ElegantDarkSurfaceVariant,
+                        border = BorderStroke(1.dp, ElegantDarkBorder)
+                    ) {
+                        Row(
+                            modifier = Modifier.padding(2.dp),
+                            verticalAlignment = Alignment.CenterVertically
+                        ) {
+                            // Button 1: Plié
+                            Surface(
+                                shape = RoundedCornerShape(8.dp),
+                                color = if (bottomPanelState == 0) ElegantPurpleAccent else Color.Transparent,
+                                modifier = Modifier
+                                    .clip(RoundedCornerShape(8.dp))
+                                    .clickable { bottomPanelState = 0 }
+                                    .testTag("toggle_bottom_hidden_button")
+                            ) {
+                                Text(
+                                    text = "Plié",
+                                    style = MaterialTheme.typography.labelSmall,
+                                    fontWeight = if (bottomPanelState == 0) FontWeight.Bold else FontWeight.Normal,
+                                    color = if (bottomPanelState == 0) Color.White else ElegantTextSecondary,
+                                    fontSize = 11.sp,
+                                    maxLines = 1,
+                                    softWrap = false,
+                                    modifier = Modifier.padding(horizontal = 8.dp, vertical = 4.dp)
+                                )
+                            }
+
+                            // Button 2: Semi-plié
+                            Surface(
+                                shape = RoundedCornerShape(8.dp),
+                                color = if (bottomPanelState == 1) Color(0xFF00B0FF) else Color.Transparent,
+                                modifier = Modifier
+                                    .clip(RoundedCornerShape(8.dp))
+                                    .clickable { bottomPanelState = 1 }
+                                    .testTag("toggle_bottom_compact_button")
+                            ) {
+                                Text(
+                                    text = "Semi-plié",
+                                    style = MaterialTheme.typography.labelSmall,
+                                    fontWeight = if (bottomPanelState == 1) FontWeight.Bold else FontWeight.Normal,
+                                    color = if (bottomPanelState == 1) Color.White else ElegantTextSecondary,
+                                    fontSize = 11.sp,
+                                    maxLines = 1,
+                                    softWrap = false,
+                                    modifier = Modifier.padding(horizontal = 8.dp, vertical = 4.dp)
+                                )
+                            }
+
+                            // Button 3: Complet
+                            Surface(
+                                shape = RoundedCornerShape(8.dp),
+                                color = if (bottomPanelState == 2) ElegantGreenActive else Color.Transparent,
+                                modifier = Modifier
+                                    .clip(RoundedCornerShape(8.dp))
+                                    .clickable { bottomPanelState = 2 }
+                                    .testTag("toggle_bottom_full_button")
+                            ) {
+                                Text(
+                                    text = "Complet",
+                                    style = MaterialTheme.typography.labelSmall,
+                                    fontWeight = if (bottomPanelState == 2) FontWeight.Bold else FontWeight.Normal,
+                                    color = if (bottomPanelState == 2) Color.White else ElegantTextSecondary,
+                                    fontSize = 11.sp,
+                                    maxLines = 1,
+                                    softWrap = false,
+                                    modifier = Modifier.padding(horizontal = 8.dp, vertical = 4.dp)
+                                )
                             }
                         }
-                ) {
-                    Icon(
-                        imageVector = Icons.Default.ChatBubbleOutline,
-                        contentDescription = null,
-                        tint = if (bottomPanelState > 0) ElegantTextSecondary else ElegantPurpleAccent,
-                        modifier = Modifier.size(14.dp)
-                    )
-                    Spacer(modifier = Modifier.width(6.dp))
-                    Text(
-                        text = when (bottomPanelState) {
-                            2 -> "SAISIE & SUGGESTIONS"
-                            1 -> "SAISIE COMPACTE (SEMI-PLIÉ)"
-                            else -> "MONITORING SEUL (REPLIÉ)"
-                        },
-                        style = MaterialTheme.typography.labelSmall,
-                        fontWeight = FontWeight.Bold,
-                        color = if (bottomPanelState > 0) ElegantTextSecondary else ElegantPurpleAccent,
-                        fontSize = 11.sp
-                    )
-                }
-
-                // 3-state segmented action buttons
-                Row(
-                    horizontalArrangement = Arrangement.spacedBy(4.dp),
-                    verticalAlignment = Alignment.CenterVertically
-                ) {
-                    // Button 1: Plié complet (Monitoring)
-                    Surface(
-                        shape = RoundedCornerShape(8.dp),
-                        color = if (bottomPanelState == 0) ElegantPurpleAccent.copy(alpha = 0.25f) else ElegantDarkSurfaceVariant,
-                        border = BorderStroke(1.dp, if (bottomPanelState == 0) ElegantPurpleAccent else ElegantDarkBorder),
-                        modifier = Modifier
-                            .clip(RoundedCornerShape(8.dp))
-                            .clickable { bottomPanelState = 0 }
-                            .testTag("toggle_bottom_hidden_button")
-                    ) {
-                        Text(
-                            text = "Plié",
-                            style = MaterialTheme.typography.labelSmall,
-                            fontWeight = if (bottomPanelState == 0) FontWeight.Bold else FontWeight.Normal,
-                            color = if (bottomPanelState == 0) ElegantPurpleAccent else ElegantTextSecondary,
-                            fontSize = 10.sp,
-                            modifier = Modifier.padding(horizontal = 7.dp, vertical = 4.dp)
-                        )
-                    }
-
-                    // Button 2: Semi-plié (Frappe seule)
-                    Surface(
-                        shape = RoundedCornerShape(8.dp),
-                        color = if (bottomPanelState == 1) Color(0xFF00B0FF).copy(alpha = 0.25f) else ElegantDarkSurfaceVariant,
-                        border = BorderStroke(1.dp, if (bottomPanelState == 1) Color(0xFF00B0FF) else ElegantDarkBorder),
-                        modifier = Modifier
-                            .clip(RoundedCornerShape(8.dp))
-                            .clickable { bottomPanelState = 1 }
-                            .testTag("toggle_bottom_compact_button")
-                    ) {
-                        Text(
-                            text = "Semi-plié",
-                            style = MaterialTheme.typography.labelSmall,
-                            fontWeight = if (bottomPanelState == 1) FontWeight.Bold else FontWeight.Normal,
-                            color = if (bottomPanelState == 1) Color(0xFF00B0FF) else ElegantTextSecondary,
-                            fontSize = 10.sp,
-                            modifier = Modifier.padding(horizontal = 7.dp, vertical = 4.dp)
-                        )
-                    }
-
-                    // Button 3: Déplié complet
-                    Surface(
-                        shape = RoundedCornerShape(8.dp),
-                        color = if (bottomPanelState == 2) ElegantGreenActive.copy(alpha = 0.25f) else ElegantDarkSurfaceVariant,
-                        border = BorderStroke(1.dp, if (bottomPanelState == 2) ElegantGreenActive else ElegantDarkBorder),
-                        modifier = Modifier
-                            .clip(RoundedCornerShape(8.dp))
-                            .clickable { bottomPanelState = 2 }
-                            .testTag("toggle_bottom_full_button")
-                    ) {
-                        Text(
-                            text = "Complet",
-                            style = MaterialTheme.typography.labelSmall,
-                            fontWeight = if (bottomPanelState == 2) FontWeight.Bold else FontWeight.Normal,
-                            color = if (bottomPanelState == 2) ElegantGreenActive else ElegantTextSecondary,
-                            fontSize = 10.sp,
-                            modifier = Modifier.padding(horizontal = 7.dp, vertical = 4.dp)
-                        )
                     }
                 }
             }

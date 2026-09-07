@@ -92,6 +92,26 @@ import androidx.compose.foundation.clickable
 import androidx.compose.foundation.horizontalScroll
 import androidx.compose.foundation.rememberScrollState
 import androidx.compose.foundation.verticalScroll
+import androidx.compose.foundation.border
+import androidx.activity.compose.rememberLauncherForActivityResult
+import androidx.activity.result.contract.ActivityResultContracts
+import androidx.activity.result.PickVisualMediaRequest
+import coil.compose.AsyncImage
+import coil.request.ImageRequest
+import androidx.compose.ui.layout.ContentScale
+import androidx.compose.runtime.mutableStateListOf
+import androidx.compose.runtime.rememberCoroutineScope
+import androidx.compose.material.icons.filled.Star
+import androidx.compose.material.icons.filled.Videocam
+import androidx.compose.material.icons.filled.Download
+import androidx.compose.material.icons.filled.Close
+import androidx.compose.material.icons.filled.PhotoLibrary
+import androidx.compose.material.icons.filled.Link
+import com.example.util.ProductMediaManager
+import com.example.util.EditableMediaItem
+import com.example.data.local.entity.ParsedMediaItem
+import kotlinx.coroutines.launch
+import java.util.UUID
 import com.example.data.local.entity.AppSettingsEntity
 import com.example.data.local.entity.CategoryEntity
 import com.example.domain.intelligence.ProductIntelligenceEngine
@@ -1547,21 +1567,23 @@ fun TelegramScreen(
         )
     }
 
-    // Modal de création de produit avec choix explicite de catégorie (Section 5)
+    // Modal de création de produit avec choix explicite de catégorie et gestion complète des médias
     selectedMessageForProductCreation?.let { msgToConvert ->
         CreateProductFromTelegramDialog(
             message = msgToConvert,
             categories = categories,
             appSettings = appSettings,
             onDismiss = { selectedMessageForProductCreation = null },
-            onConfirm = { catId, customTitle, pPrice, sPrice ->
+            onConfirm = { catId, customTitle, pPrice, sPrice, customMedia, primaryImg ->
                 viewModel.createProductFromTelegram(
                     message = msgToConvert,
                     categoryId = catId,
                     customTitle = customTitle,
                     purchasePrice = pPrice,
                     sellingPrice = sPrice,
-                    currency = appSettings.currency.ifBlank { "MAD" }
+                    currency = appSettings.currency.ifBlank { "MAD" },
+                    customMediaItems = customMedia,
+                    customPrimaryImageUrl = primaryImg
                 ) { createdProd ->
                     toastMessage = "Produit '${createdProd.title}' créé avec succès !"
                 }
@@ -1574,7 +1596,8 @@ fun TelegramScreen(
 /**
  * Dialog de création de produit à partir d'un message Telegram capturé.
  * Permet d'assigner une catégorie réelle ou de laisser explicite "Non catégorisé",
- * et applique la devise configurée dans Paramètres (Section 4 et 5).
+ * et applique la devise configurée dans Paramètres.
+ * Permet de modifier, télécharger, supprimer et uploader des images et vidéos.
  */
 @Composable
 fun CreateProductFromTelegramDialog(
@@ -1582,7 +1605,14 @@ fun CreateProductFromTelegramDialog(
     categories: List<CategoryEntity>,
     appSettings: AppSettingsEntity,
     onDismiss: () -> Unit,
-    onConfirm: (categoryId: String?, title: String, purchasePrice: Double?, sellingPrice: Double?) -> Unit
+    onConfirm: (
+        categoryId: String?,
+        title: String,
+        purchasePrice: Double?,
+        sellingPrice: Double?,
+        mediaItems: List<ParsedMediaItem>,
+        primaryImageUrl: String?
+    ) -> Unit
 ) {
     val currency = appSettings.currency.ifBlank { "MAD" }
     val extracted = remember(message.id) {
@@ -1602,7 +1632,54 @@ fun CreateProductFromTelegramDialog(
     }
     var selectedCategoryId by remember { mutableStateOf<String?>(null) } // "Non catégorisé" par défaut
 
-    val mediaItems = remember(message.id) { message.getMediaItems() }
+    val context = LocalContext.current
+    val coroutineScope = rememberCoroutineScope()
+
+    // Liste éditable des médias (images & vidéos)
+    val mediaList = remember {
+        mutableStateListOf<EditableMediaItem>().apply {
+            message.getMediaItems().forEach { item ->
+                val path = item.localPath ?: item.url ?: ""
+                if (path.isNotBlank()) {
+                    add(EditableMediaItem(urlOrPath = path, isVideo = item.isVideo))
+                }
+            }
+        }
+    }
+    var primaryMediaId by remember {
+        mutableStateOf(mediaList.firstOrNull { !it.isVideo }?.id ?: mediaList.firstOrNull()?.id)
+    }
+    var isProcessingMedia by remember { mutableStateOf(false) }
+    var showAddUrlInput by remember { mutableStateOf(false) }
+    var manualUrlText by remember { mutableStateOf("") }
+
+    // Sélecteur Android officiel : sélectionne photos et vidéos de la galerie
+    val mediaPickerLauncher = rememberLauncherForActivityResult(
+        contract = ActivityResultContracts.PickMultipleVisualMedia(maxItems = 10)
+    ) { uris ->
+        if (uris.isNotEmpty()) {
+            coroutineScope.launch {
+                isProcessingMedia = true
+                uris.forEach { uri ->
+                    val mime = context.contentResolver.getType(uri) ?: ""
+                    val isVid = mime.startsWith("video") || ProductMediaManager.isVideoUrlOrPath(uri.toString())
+                    val savedPath = ProductMediaManager.saveUriToInternalStorage(context, uri, isVid)
+                    if (savedPath != null) {
+                        val newItem = EditableMediaItem(
+                            id = UUID.randomUUID().toString(),
+                            urlOrPath = savedPath,
+                            isVideo = isVid
+                        )
+                        mediaList.add(newItem)
+                        if (primaryMediaId == null) {
+                            primaryMediaId = newItem.id
+                        }
+                    }
+                }
+                isProcessingMedia = false
+            }
+        }
+    }
 
     AlertDialog(
         onDismissRequest = onDismiss,
@@ -1669,19 +1746,238 @@ fun CreateProductFromTelegramDialog(
                         }
                     }
                 }
-                // Aperçu carrousel des médias du message
-                if (mediaItems.isNotEmpty()) {
-                    Text(
-                        "Médias détectés (${mediaItems.size}) :",
-                        color = ElegantTextSecondary,
-                        fontSize = 12.sp,
-                        fontWeight = FontWeight.SemiBold
-                    )
-                    MediaCarousel(
-                        mediaItems = mediaItems,
-                        height = 150.dp,
-                        modifier = Modifier.fillMaxWidth()
-                    )
+
+                // Section Médias : Modification, Téléchargement, Suppression, Ajout (Photos & Vidéos)
+                Surface(
+                    shape = RoundedCornerShape(10.dp),
+                    color = ElegantDarkCard,
+                    border = BorderStroke(1.dp, ElegantDarkBorder),
+                    modifier = Modifier.fillMaxWidth()
+                ) {
+                    Column(modifier = Modifier.padding(10.dp)) {
+                        Row(
+                            modifier = Modifier.fillMaxWidth(),
+                            horizontalArrangement = Arrangement.SpaceBetween,
+                            verticalAlignment = Alignment.CenterVertically
+                        ) {
+                            Column {
+                                Text(
+                                    "Photos & Vidéos du produit (${mediaList.size})",
+                                    color = ElegantTextPrimary,
+                                    fontSize = 13.sp,
+                                    fontWeight = FontWeight.Bold
+                                )
+                                Text(
+                                    "Touchez pour définir la miniature principale ★",
+                                    color = ElegantTextSecondary,
+                                    fontSize = 10.sp
+                                )
+                            }
+                            if (isProcessingMedia) {
+                                CircularProgressIndicator(modifier = Modifier.size(16.dp), strokeWidth = 2.dp, color = ElegantGreenActive)
+                            }
+                        }
+
+                        Spacer(modifier = Modifier.height(8.dp))
+
+                        if (mediaList.isNotEmpty()) {
+                            Row(
+                                modifier = Modifier
+                                    .fillMaxWidth()
+                                    .horizontalScroll(rememberScrollState()),
+                                horizontalArrangement = Arrangement.spacedBy(8.dp)
+                            ) {
+                                mediaList.forEach { item ->
+                                    val isPrimary = (primaryMediaId == item.id) || (primaryMediaId == null && mediaList.firstOrNull()?.id == item.id)
+                                    val displayModel = remember(item.urlOrPath) {
+                                        ProductMediaManager.resolveMediaDisplayModel(context, item.urlOrPath)
+                                    }
+
+                                    Box(
+                                        modifier = Modifier
+                                            .size(86.dp)
+                                            .clip(RoundedCornerShape(8.dp))
+                                            .background(ElegantDarkSurface)
+                                            .border(
+                                                width = if (isPrimary) 2.dp else 1.dp,
+                                                color = if (isPrimary) Color(0xFFF59E0B) else ElegantDarkBorder,
+                                                shape = RoundedCornerShape(8.dp)
+                                            )
+                                            .clickable { primaryMediaId = item.id }
+                                    ) {
+                                        AsyncImage(
+                                            model = ImageRequest.Builder(context)
+                                                .data(displayModel)
+                                                .crossfade(true)
+                                                .build(),
+                                            contentDescription = "Média produit",
+                                            contentScale = ContentScale.Crop,
+                                            modifier = Modifier.fillMaxSize()
+                                        )
+
+                                        // Badge Miniature principale (Étoile)
+                                        if (isPrimary) {
+                                            Surface(
+                                                shape = RoundedCornerShape(bottomEnd = 6.dp),
+                                                color = Color(0xFFF59E0B),
+                                                modifier = Modifier.align(Alignment.TopStart)
+                                            ) {
+                                                Row(
+                                                    modifier = Modifier.padding(horizontal = 4.dp, vertical = 2.dp),
+                                                    verticalAlignment = Alignment.CenterVertically
+                                                ) {
+                                                    Icon(Icons.Default.Star, contentDescription = null, tint = Color.Black, modifier = Modifier.size(10.dp))
+                                                    Spacer(modifier = Modifier.width(2.dp))
+                                                    Text("Miniature", color = Color.Black, fontSize = 8.sp, fontWeight = FontWeight.Bold)
+                                                }
+                                            }
+                                        }
+
+                                        // Badge Vidéo
+                                        if (item.isVideo) {
+                                            Surface(
+                                                shape = RoundedCornerShape(topStart = 6.dp),
+                                                color = Color(0xFFE53935).copy(alpha = 0.9f),
+                                                modifier = Modifier.align(Alignment.BottomStart)
+                                            ) {
+                                                Icon(Icons.Default.Videocam, contentDescription = null, tint = Color.White, modifier = Modifier.size(14.dp).padding(2.dp))
+                                            }
+                                        }
+
+                                        // Actions flottantes sur le média : Télécharger et Supprimer
+                                        Row(
+                                            modifier = Modifier
+                                                .align(Alignment.TopEnd)
+                                                .padding(2.dp),
+                                            horizontalArrangement = Arrangement.spacedBy(3.dp)
+                                        ) {
+                                            // Télécharger vers galerie / vidéos
+                                            Box(
+                                                modifier = Modifier
+                                                    .size(22.dp)
+                                                    .background(Color.Black.copy(alpha = 0.75f), CircleShape)
+                                                    .clickable {
+                                                        coroutineScope.launch {
+                                                            ProductMediaManager.downloadMediaToDevice(context, item.urlOrPath, title.ifBlank { "produit" })
+                                                        }
+                                                    },
+                                                contentAlignment = Alignment.Center
+                                            ) {
+                                                Icon(Icons.Default.Download, contentDescription = "Télécharger", tint = Color.White, modifier = Modifier.size(12.dp))
+                                            }
+
+                                            // Supprimer média
+                                            Box(
+                                                modifier = Modifier
+                                                    .size(22.dp)
+                                                    .background(Color(0xFFEF4444).copy(alpha = 0.85f), CircleShape)
+                                                    .clickable {
+                                                        mediaList.remove(item)
+                                                        if (primaryMediaId == item.id) {
+                                                            primaryMediaId = mediaList.firstOrNull()?.id
+                                                        }
+                                                    },
+                                                contentAlignment = Alignment.Center
+                                            ) {
+                                                Icon(Icons.Default.Close, contentDescription = "Supprimer", tint = Color.White, modifier = Modifier.size(12.dp))
+                                            }
+                                        }
+                                    }
+                                }
+                            }
+
+                            Spacer(modifier = Modifier.height(8.dp))
+                        }
+
+                        // Boutons d'action pour les médias
+                        Row(
+                            modifier = Modifier.fillMaxWidth(),
+                            horizontalArrangement = Arrangement.spacedBy(8.dp)
+                        ) {
+                            Button(
+                                onClick = {
+                                    mediaPickerLauncher.launch(
+                                        PickVisualMediaRequest(ActivityResultContracts.PickVisualMedia.ImageAndVideo)
+                                    )
+                                },
+                                colors = ButtonDefaults.buttonColors(containerColor = ElegantGreenActive.copy(alpha = 0.25f)),
+                                border = BorderStroke(1.dp, ElegantGreenActive),
+                                shape = RoundedCornerShape(8.dp),
+                                modifier = Modifier.weight(1f)
+                            ) {
+                                Icon(Icons.Default.PhotoLibrary, contentDescription = null, tint = ElegantGreenActive, modifier = Modifier.size(15.dp))
+                                Spacer(modifier = Modifier.width(6.dp))
+                                Text("Ajouter Photos/Vidéos", color = Color.White, fontSize = 11.sp, fontWeight = FontWeight.SemiBold)
+                            }
+
+                            OutlinedButton(
+                                onClick = { showAddUrlInput = !showAddUrlInput },
+                                shape = RoundedCornerShape(8.dp),
+                                border = BorderStroke(1.dp, ElegantDarkBorder),
+                                colors = ButtonDefaults.outlinedButtonColors(contentColor = ElegantTextSecondary)
+                            ) {
+                                Icon(Icons.Default.Link, contentDescription = null, modifier = Modifier.size(14.dp))
+                                Spacer(modifier = Modifier.width(4.dp))
+                                Text("URL", fontSize = 11.sp)
+                            }
+                        }
+
+                        if (showAddUrlInput) {
+                            Spacer(modifier = Modifier.height(6.dp))
+                            Row(
+                                modifier = Modifier.fillMaxWidth(),
+                                verticalAlignment = Alignment.CenterVertically,
+                                horizontalArrangement = Arrangement.spacedBy(6.dp)
+                            ) {
+                                OutlinedTextField(
+                                    value = manualUrlText,
+                                    onValueChange = { manualUrlText = it },
+                                    label = { Text("https://...") },
+                                    singleLine = true,
+                                    modifier = Modifier.weight(1f)
+                                )
+                                Button(
+                                    onClick = {
+                                        if (manualUrlText.isNotBlank()) {
+                                            val newItem = EditableMediaItem(
+                                                urlOrPath = manualUrlText.trim(),
+                                                isVideo = ProductMediaManager.isVideoUrlOrPath(manualUrlText)
+                                            )
+                                            mediaList.add(newItem)
+                                            if (primaryMediaId == null) primaryMediaId = newItem.id
+                                            manualUrlText = ""
+                                            showAddUrlInput = false
+                                        }
+                                    },
+                                    shape = RoundedCornerShape(8.dp),
+                                    colors = ButtonDefaults.buttonColors(containerColor = ElegantGreenActive)
+                                ) {
+                                    Text("OK", fontSize = 11.sp)
+                                }
+                            }
+                        }
+
+                        // Option de tout télécharger d'un coup
+                        if (mediaList.isNotEmpty()) {
+                            Spacer(modifier = Modifier.height(6.dp))
+                            OutlinedButton(
+                                onClick = {
+                                    coroutineScope.launch {
+                                        mediaList.forEach { m ->
+                                            ProductMediaManager.downloadMediaToDevice(context, m.urlOrPath, title.ifBlank { "produit" })
+                                        }
+                                    }
+                                },
+                                shape = RoundedCornerShape(8.dp),
+                                border = BorderStroke(1.dp, ElegantDarkBorder),
+                                modifier = Modifier.fillMaxWidth()
+                            ) {
+                                Icon(Icons.Default.Download, contentDescription = null, modifier = Modifier.size(14.dp), tint = ElegantTextSecondary)
+                                Spacer(modifier = Modifier.width(6.dp))
+                                Text("Télécharger tous les médias (${mediaList.size}) dans la galerie", fontSize = 11.sp, color = ElegantTextSecondary)
+                            }
+                        }
+                    }
                 }
 
                 // Titre
@@ -1768,7 +2064,18 @@ fun CreateProductFromTelegramDialog(
                         if (title.isNotBlank()) {
                             val pPrice = purchasePriceInput.toDoubleOrNull()
                             val sPrice = sellingPriceInput.toDoubleOrNull()
-                            onConfirm(selectedCategoryId, title, pPrice, sPrice)
+                            val finalParsedMedia = mediaList.map { item ->
+                                val isLocal = item.urlOrPath.startsWith("/") || item.urlOrPath.startsWith("file://")
+                                val cleanPath = if (item.urlOrPath.startsWith("file://")) item.urlOrPath.removePrefix("file://") else item.urlOrPath
+                                ParsedMediaItem(
+                                    url = if (isLocal) null else item.urlOrPath,
+                                    localPath = if (isLocal) cleanPath else null,
+                                    isVideo = item.isVideo
+                                )
+                            }
+                            val selectedPrimary = mediaList.find { it.id == primaryMediaId } ?: mediaList.firstOrNull()
+                            val primaryUrl = selectedPrimary?.urlOrPath
+                            onConfirm(selectedCategoryId, title, pPrice, sPrice, finalParsedMedia, primaryUrl)
                         }
                     },
                     colors = ButtonDefaults.buttonColors(containerColor = ElegantGreenActive),

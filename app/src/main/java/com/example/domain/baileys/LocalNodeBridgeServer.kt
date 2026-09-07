@@ -238,9 +238,13 @@ class LocalNodeBridgeServer(
                                 .firstOrNull { !it.isFromCustomer && it.remoteJid == remoteJid }
                             val responseJson = JSONObject().apply {
                                 put("success", true)
-                                put("replyText", recentReply?.content ?: "")
+                                put("replyText", if (recentReply != null && !recentReply.isFromCustomer) recentReply.content else "")
                                 put("agentName", recentReply?.handledByAgentName ?: "Agent")
                                 put("duplicate", true)
+                                if (recentReply == null || recentReply.isFromCustomer) {
+                                    put("skipped", true)
+                                    put("humanMode", true)
+                                }
                             }
                             sendHttpResponse(output, 200, "OK", "application/json", responseJson.toString())
                             return@withContext
@@ -265,19 +269,31 @@ class LocalNodeBridgeServer(
                             messageText = text
                         )
 
-                        log(LogType.OUTGOING, "[$instanceId] Réponse générée par ${reply.handledByAgentName} (${reply.latencyMs}ms) : ${reply.content}")
+                        if (reply != null && !reply.isFromCustomer && reply.content.isNotBlank()) {
+                            log(LogType.OUTGOING, "[$instanceId] Réponse générée par ${reply.handledByAgentName} (${reply.latencyMs}ms) : ${reply.content}")
 
-                        val responseJson = JSONObject().apply {
-                            put("success", true)
-                            put("replyText", reply.content)
-                            put("agentName", reply.handledByAgentName)
-                            put("agentId", reply.handledByAgentId)
-                            put("routingReason", reply.routingReason)
-                            put("latencyMs", reply.latencyMs)
-                            put("timestamp", reply.timestamp)
+                            val responseJson = JSONObject().apply {
+                                put("success", true)
+                                put("replyText", reply.content)
+                                put("agentName", reply.handledByAgentName)
+                                put("agentId", reply.handledByAgentId)
+                                put("routingReason", reply.routingReason)
+                                put("latencyMs", reply.latencyMs)
+                                put("timestamp", reply.timestamp)
+                            }
+                            sendHttpResponse(output, 200, "OK", "application/json", responseJson.toString())
+                        } else {
+                            // Discussion en mode humain / IA désactivée pour ce contact : aucun message automatique
+                            log(LogType.INFO, "[$instanceId] Mode Humain / IA désactivée pour $remoteJid. Aucun message automatique envoyé.")
+                            val responseJson = JSONObject().apply {
+                                put("success", true)
+                                put("replyText", "")
+                                put("skipped", true)
+                                put("humanMode", true)
+                                put("reason", "IA désactivée pour cette discussion")
+                            }
+                            sendHttpResponse(output, 200, "OK", "application/json", responseJson.toString())
                         }
-
-                        sendHttpResponse(output, 200, "OK", "application/json", responseJson.toString())
                     } catch (e: Exception) {
                         log(LogType.ERROR, "Erreur traitement message : ${e.message}")
                         sendHttpResponse(output, 400, "Bad Request", "application/json", "{\"error\":\"${e.message}\"}")

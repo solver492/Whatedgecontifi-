@@ -470,13 +470,21 @@ class MainViewModel(application: Application) : AndroidViewModel(application) {
     // --- Conversation-Level Agent Controls ---
     fun setConversationAiEnabled(remoteJid: String, contactName: String, isEnabled: Boolean) {
         viewModelScope.launch(Dispatchers.IO) {
-            val existing = database.agentDao().getConversationOverride(remoteJid)
+            val cleanJid = remoteJid.trim()
+            val rawNumber = cleanJid.substringBefore("@").replace("+", "").replace(" ", "").trim()
+            val jidFormatted = if (!cleanJid.contains("@")) "$rawNumber@s.whatsapp.net" else cleanJid
+
+            val existing = database.agentDao().getConversationOverride(jidFormatted)
+                ?: database.agentDao().getConversationOverride(cleanJid)
+                ?: database.agentDao().getConversationOverride(rawNumber)
+
             val updated = existing?.copy(
+                remoteJid = jidFormatted,
                 isAiEnabled = isEnabled,
                 contactName = if (contactName.isNotBlank()) contactName else existing.contactName,
                 updatedAt = System.currentTimeMillis()
             ) ?: ConversationAgentOverrideEntity(
-                remoteJid = remoteJid,
+                remoteJid = jidFormatted,
                 contactName = contactName,
                 isAiEnabled = isEnabled,
                 forcedAgentId = null,
@@ -484,6 +492,12 @@ class MainViewModel(application: Application) : AndroidViewModel(application) {
                 updatedAt = System.currentTimeMillis()
             )
             database.agentDao().insertOrUpdateConversationOverride(updated)
+            if (cleanJid != jidFormatted) {
+                database.agentDao().insertOrUpdateConversationOverride(updated.copy(remoteJid = cleanJid))
+            }
+            if (rawNumber.isNotBlank() && rawNumber != jidFormatted && rawNumber != cleanJid) {
+                database.agentDao().insertOrUpdateConversationOverride(updated.copy(remoteJid = rawNumber))
+            }
             _syncMessage.value = if (isEnabled) "IA activée pour $remoteJid" else "IA désactivée pour $remoteJid (Mode Humain)"
         }
     }
@@ -883,6 +897,46 @@ class MainViewModel(application: Application) : AndroidViewModel(application) {
         }
     }
 
+    fun deleteProductMedia(productId: String, mediaId: String, mediaUrlOrPath: String) {
+        viewModelScope.launch(Dispatchers.IO) {
+            database.commerceDao().deleteProductMediaById(mediaId)
+            val prod = database.commerceDao().getProductById(productId)
+            if (prod != null && (prod.primaryImageUrl == mediaUrlOrPath || prod.primaryImageUrl == null)) {
+                val remaining = database.commerceDao().getProductMediaList(productId)
+                val newPrimary = remaining.firstOrNull { it.mediaType != "video" }?.mediaUrl
+                    ?: remaining.firstOrNull()?.mediaUrl
+                database.commerceDao().insertProduct(prod.copy(primaryImageUrl = newPrimary))
+            }
+        }
+    }
+
+    fun addMediaToProduct(productId: String, mediaUrlOrPath: String, isVideo: Boolean) {
+        viewModelScope.launch(Dispatchers.IO) {
+            val existing = database.commerceDao().getProductMediaList(productId)
+            val newEntity = ProductMediaEntity(
+                id = java.util.UUID.randomUUID().toString(),
+                productId = productId,
+                mediaUrl = mediaUrlOrPath,
+                mediaType = if (isVideo) "video" else "photo",
+                sortOrder = existing.size
+            )
+            database.commerceDao().insertProductMedia(listOf(newEntity))
+            val prod = database.commerceDao().getProductById(productId)
+            if (prod != null && prod.primaryImageUrl.isNullOrBlank() && !isVideo) {
+                database.commerceDao().insertProduct(prod.copy(primaryImageUrl = mediaUrlOrPath))
+            }
+        }
+    }
+
+    fun setPrimaryProductImage(productId: String, imageUrlOrPath: String) {
+        viewModelScope.launch(Dispatchers.IO) {
+            val prod = database.commerceDao().getProductById(productId)
+            if (prod != null) {
+                database.commerceDao().insertProduct(prod.copy(primaryImageUrl = imageUrlOrPath))
+            }
+        }
+    }
+
     fun getProductMedia(productId: String): kotlinx.coroutines.flow.Flow<List<ProductMediaEntity>> {
         return database.commerceDao().getMediaForProduct(productId)
     }
@@ -932,14 +986,17 @@ class MainViewModel(application: Application) : AndroidViewModel(application) {
         purchasePrice: Double? = null,
         sellingPrice: Double? = null,
         currency: String? = null,
+        customMediaItems: List<com.example.data.local.entity.ParsedMediaItem>? = null,
+        customPrimaryImageUrl: String? = null,
         onComplete: ((ProductEntity) -> Unit)? = null
     ) {
         viewModelScope.launch(Dispatchers.IO) {
             val curr = currency ?: appSettings.value.currency.ifBlank { "MAD" }
             val (extractedProd, _) = ProductIntelligenceEngine.extractFromTelegramMessage(message, curr)
-            val mediaItems = message.getMediaItems()
+            val mediaItems = customMediaItems ?: message.getMediaItems()
 
-            val primaryImg = mediaItems.firstOrNull { !it.isVideo }?.let { it.localPath ?: it.url }
+            val primaryImg = customPrimaryImageUrl
+                ?: mediaItems.firstOrNull { !it.isVideo }?.let { it.localPath ?: it.url }
                 ?: mediaItems.firstOrNull()?.let { it.localPath ?: it.url }
                 ?: extractedProd.primaryImageUrl
 

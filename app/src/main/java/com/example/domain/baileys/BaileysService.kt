@@ -88,7 +88,7 @@ class BaileysService(private val database: AppDatabase) {
         senderJid: String,
         senderName: String,
         messageText: String
-    ): WhatsAppMessageEntity {
+    ): WhatsAppMessageEntity? {
         val msgDao = database.whatsAppMessageDao()
         val agentDao = database.agentDao()
         val knowDao = database.knowledgeDao()
@@ -108,11 +108,24 @@ class BaileysService(private val database: AppDatabase) {
         _eventsFlow.emit(BaileysEvent(instanceId, "messages.upsert", "Incoming message from $senderName: $messageText"))
 
         // 1.5. Check conversation-level AI override (Toggle / Agent specific per conversation)
-        val conversationOverride = agentDao.getConversationOverride(senderJid)
+        val cleanJid = senderJid.trim()
+        val rawNumber = cleanJid.substringBefore("@").replace("+", "").replace(" ", "").trim()
+        val withPlus = "+$rawNumber"
+        val withWhatsappSuffix = if (cleanJid.contains("@")) cleanJid else "$rawNumber@s.whatsapp.net"
+        val conversationOverride = agentDao.getConversationOverride(cleanJid)
+            ?: agentDao.getConversationOverride(withWhatsappSuffix)
+            ?: agentDao.getConversationOverride(rawNumber)
+            ?: agentDao.getConversationOverride(withPlus)
+            ?: agentDao.getConversationOverride(senderJid)
+            ?: agentDao.getAllConversationOverridesList().firstOrNull { override ->
+                val overrideRaw = override.remoteJid.substringBefore("@").replace("+", "").replace(" ", "").trim()
+                overrideRaw == rawNumber || override.remoteJid.equals(cleanJid, ignoreCase = true) || override.remoteJid.equals(senderJid, ignoreCase = true)
+            }
+
         if (conversationOverride != null && !conversationOverride.isAiEnabled) {
             // AI is explicitly disabled by user for this contact/thread (Human takeover mode)
-            _eventsFlow.emit(BaileysEvent(instanceId, "messages.skip", "IA désactivée pour la conversation $senderJid (Mode Humain)"))
-            return incomingMsg
+            _eventsFlow.emit(BaileysEvent(instanceId, "messages.skip", "IA désactivée pour la discussion $senderJid (Mode Humain - Aucun message envoyé)"))
+            return null
         }
 
         // 2. Resolve target AI Agent via smart routing engine (Override, Category-first, then Instance, Keywords, Schedule, Fallback)
@@ -156,19 +169,15 @@ class BaileysService(private val database: AppDatabase) {
         }
 
         if (selectedAgent == null) {
-            // No active agent configured or all inactive
-            val fallbackMsg = WhatsAppMessageEntity(
-                id = UUID.randomUUID().toString(),
-                instanceId = instanceId,
-                remoteJid = senderJid,
-                senderName = "WhatsApp Auto-Reply",
-                content = "Bonjour ! Aucun agent IA n'est actuellement configuré pour ce canal.",
-                isFromCustomer = false,
-                timestamp = System.currentTimeMillis(),
-                routingReason = "No active agent"
+            // No active agent configured or all inactive - Do NOT send auto-reply, respect silence
+            _eventsFlow.emit(
+                BaileysEvent(
+                    instanceId,
+                    "messages.skip",
+                    "Aucun agent IA actif pour $senderJid. Aucun message automatique envoyé."
+                )
             )
-            msgDao.insertMessage(fallbackMsg)
-            return fallbackMsg
+            return null
         }
 
         // 2.5. Check if the selected agent is specifically disabled for this conversation
@@ -177,10 +186,10 @@ class BaileysService(private val database: AppDatabase) {
                 BaileysEvent(
                     instanceId,
                     "messages.skip",
-                    "Agent ${selectedAgent.name} désactivé pour la conversation $senderJid (Reprise manuelle)"
+                    "Agent ${selectedAgent.name} désactivé pour la conversation $senderJid (Reprise manuelle - Aucun message envoyé)"
                 )
             )
-            return incomingMsg
+            return null
         }
 
         // 3. Retrieve relevant RAG knowledge sources for this agent

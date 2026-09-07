@@ -530,12 +530,12 @@ async function startBaileys() {
         messageId: msgId || ''
       });
 
-      if (response && response.replyText) {
+      if (response && response.replyText && response.replyText.trim().length > 0 && !response.skipped && !response.humanMode) {
         console.log(`🤖 [RÉPONSE IA - ${'$'}{response.agentName || 'Agent'} | ${'$'}{response.latencyMs || 0}ms] : "${'$'}{response.replyText}"`);
         await sock.sendMessage(remoteJid, { text: response.replyText }, { quoted: msg });
         console.log(`🚀 [WHATSAPP] Réponse envoyée avec succès sur WhatsApp !`);
       } else {
-        console.log(`ℹ️ Message enregistré. En attente de l'application.`);
+        console.log(`👤 [MODE REPRISE HUMAINE] Aucun message IA envoyé à ${'$'}{remoteJid} (IA désactivée ou en attente)`);
       }
       console.log('--------------------------------------------------');
     }

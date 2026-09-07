@@ -78,6 +78,9 @@ interface AgentDao {
     @Query("SELECT * FROM conversation_agent_overrides ORDER BY updatedAt DESC")
     fun getAllConversationOverrides(): Flow<List<ConversationAgentOverrideEntity>>
 
+    @Query("SELECT * FROM conversation_agent_overrides")
+    suspend fun getAllConversationOverridesList(): List<ConversationAgentOverrideEntity>
+
     @Query("SELECT * FROM conversation_agent_overrides WHERE remoteJid = :remoteJid LIMIT 1")
     suspend fun getConversationOverride(remoteJid: String): ConversationAgentOverrideEntity?
 

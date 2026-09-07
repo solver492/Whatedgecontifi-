@@ -241,3 +241,13 @@ object ProductMediaManager {
         }
     }
 }
+
+/**
+ * Modèle de média éditable dans l'interface (création manuelle ou import Telegram)
+ */
+data class EditableMediaItem(
+    val id: String = java.util.UUID.randomUUID().toString(),
+    var urlOrPath: String,
+    var isVideo: Boolean = false
+)
+
