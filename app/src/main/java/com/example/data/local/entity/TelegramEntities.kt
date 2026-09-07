@@ -54,7 +54,23 @@ data class TelegramMessageEntity(
     val rawJson: String? = null
 ) {
     fun getMediaUrls(): List<String> {
-        return getMediaItems().mapNotNull { it.url ?: it.localPath }
+        return getMediaItems().mapNotNull { item ->
+            item.url ?: run {
+                val p = item.localPath ?: return@run null
+                val f = java.io.File(p)
+                if (f.exists() && f.canRead() && f.length() > 0) {
+                    p
+                } else if (p.contains("telegram_media/")) {
+                    val parts = p.substringAfter("telegram_media/").trimStart('/').split("/")
+                    if (parts.size >= 3) {
+                        val ch = parts[0]
+                        val mid = parts[1]
+                        val fn = parts.drop(2).joinToString("/")
+                        "http://127.0.0.1:8088/media/$ch/$mid/$fn"
+                    } else null
+                } else null
+            }
+        }
     }
 
     fun getMediaItems(): List<ParsedMediaItem> {
@@ -105,22 +121,29 @@ data class ParsedMediaItem(
     fun getDisplayModel(): Any? {
         if (!localPath.isNullOrBlank()) {
             val file = java.io.File(localPath)
-            if (file.exists() && file.length() > 0) {
+            if (file.exists() && file.canRead() && file.length() > 0) {
                 return file
             }
+        }
+        if (!url.isNullOrBlank()) {
+            if (url.startsWith("http://") || url.startsWith("https://")) return url
+            if (url.startsWith("content://")) return android.net.Uri.parse(url)
         }
         val target = url ?: localPath
         if (!target.isNullOrBlank()) {
             if (target.startsWith("content://")) return android.net.Uri.parse(target)
-            if (target.startsWith("file://")) return java.io.File(target.removePrefix("file://"))
+            if (target.startsWith("file://")) {
+                val f = java.io.File(target.removePrefix("file://"))
+                if (f.exists() && f.canRead() && f.length() > 0) return f
+            }
             if (target.startsWith("http://") || target.startsWith("https://")) return target
-            if (target.startsWith("/")) return java.io.File(target)
+            if (target.startsWith("/")) {
+                val f = java.io.File(target)
+                if (f.exists() && f.canRead() && f.length() > 0) return f
+            }
             
-            // Chemins relatifs (ex: telethon_bridge/telegram_media/...)
-            val f = java.io.File(target)
-            if (f.exists()) return f
             if (target.contains("telegram_media/")) {
-                val parts = target.substringAfter("telegram_media/").split("/")
+                val parts = target.substringAfter("telegram_media/").trimStart('/').split("/")
                 if (parts.size >= 3) {
                     val ch = parts[0]
                     val mid = parts[1]
@@ -128,6 +151,8 @@ data class ParsedMediaItem(
                     return "http://127.0.0.1:8088/media/$ch/$mid/$fn"
                 }
             }
+            val f = java.io.File(target)
+            if (f.exists() && f.canRead() && f.length() > 0) return f
             return target
         }
         return null

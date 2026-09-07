@@ -39,6 +39,8 @@ import com.example.domain.telegram.TelegramAuthResult
 import com.example.domain.telegram.TelegramBridgeStatus
 import com.example.domain.telegram.TelegramService
 import com.example.util.PriceFormatter
+import com.example.util.ProductMediaManager
+import java.io.File
 import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.flow.MutableStateFlow
 import kotlinx.coroutines.flow.SharingStarted
@@ -241,6 +243,9 @@ class MainViewModel(application: Application) : AndroidViewModel(application) {
                 val first = remaining.first()
                 _selectedInstanceId.value = first.id
             }
+
+            // Réparation et mise en cache locale des médias produits (auto-réparation)
+            repairBrokenProductMedia()
         }
     }
 
@@ -880,6 +885,7 @@ class MainViewModel(application: Application) : AndroidViewModel(application) {
 
     fun saveProductWithMediaEntities(product: ProductEntity, mediaEntities: List<ProductMediaEntity>) {
         viewModelScope.launch(Dispatchers.IO) {
+            val app = getApplication<Application>()
             database.commerceDao().insertProduct(product)
             database.commerceDao().deleteMediaForProduct(product.id)
             if (mediaEntities.isNotEmpty()) {
@@ -887,6 +893,25 @@ class MainViewModel(application: Application) : AndroidViewModel(application) {
                     item.copy(productId = product.id, sortOrder = index)
                 }
                 database.commerceDao().insertProductMedia(reordered)
+
+                // Mettre en cache localement si nécessaire
+                try {
+                    var newPrimary: String? = null
+                    val cachedMedia = reordered.mapIndexed { idx, entity ->
+                        val cached = ProductMediaManager.cacheMediaLocally(app, entity.mediaUrl, "prod_${product.id}_")
+                        val finalUrl = cached ?: entity.mediaUrl
+                        if (idx == 0 || entity.mediaUrl == product.primaryImageUrl) {
+                            newPrimary = finalUrl
+                        }
+                        entity.copy(mediaUrl = finalUrl)
+                    }
+                    database.commerceDao().insertProductMedia(cachedMedia)
+                    if (newPrimary != null && newPrimary != product.primaryImageUrl) {
+                        database.commerceDao().insertProduct(product.copy(primaryImageUrl = newPrimary))
+                    }
+                } catch (e: Exception) {
+                    android.util.Log.w("MainViewModel", "Erreur cache saveProductWithMediaEntities: ${e.message}")
+                }
             }
         }
     }
@@ -991,13 +1016,32 @@ class MainViewModel(application: Application) : AndroidViewModel(application) {
         onComplete: ((ProductEntity) -> Unit)? = null
     ) {
         viewModelScope.launch(Dispatchers.IO) {
+            val app = getApplication<Application>()
             val curr = currency ?: appSettings.value.currency.ifBlank { "MAD" }
             val (extractedProd, _) = ProductIntelligenceEngine.extractFromTelegramMessage(message, curr)
             val mediaItems = customMediaItems ?: message.getMediaItems()
 
+            fun getUsablePath(item: com.example.data.local.entity.ParsedMediaItem): String {
+                val usableLocal = item.localPath?.takeIf { File(it).canRead() && File(it).length() > 0 }
+                if (usableLocal != null) return usableLocal
+                if (!item.url.isNullOrBlank()) return item.url
+                val p = item.localPath ?: ""
+                if (p.contains("telegram_media/")) {
+                    val sub = p.substringAfter("telegram_media/").trimStart('/')
+                    val parts = sub.split("/")
+                    if (parts.size >= 3) {
+                        val ch = parts[0]
+                        val mid = parts[1]
+                        val fn = parts.drop(2).joinToString("/")
+                        return "http://127.0.0.1:8088/media/$ch/$mid/$fn"
+                    }
+                }
+                return p
+            }
+
             val primaryImg = customPrimaryImageUrl
-                ?: mediaItems.firstOrNull { !it.isVideo }?.let { it.localPath ?: it.url }
-                ?: mediaItems.firstOrNull()?.let { it.localPath ?: it.url }
+                ?: mediaItems.firstOrNull { !it.isVideo }?.let { getUsablePath(it) }
+                ?: mediaItems.firstOrNull()?.let { getUsablePath(it) }
                 ?: extractedProd.primaryImageUrl
 
             val finalProduct = extractedProd.copy(
@@ -1011,22 +1055,106 @@ class MainViewModel(application: Application) : AndroidViewModel(application) {
 
             database.commerceDao().insertProduct(finalProduct)
 
-            if (mediaItems.isNotEmpty()) {
+            val createdMediaEntities = if (mediaItems.isNotEmpty()) {
                 val mediaEntities = mediaItems.mapIndexed { index, item ->
+                    val path = getUsablePath(item)
                     ProductMediaEntity(
                         id = java.util.UUID.randomUUID().toString(),
                         productId = finalProduct.id,
-                        mediaUrl = item.url ?: item.localPath ?: "",
+                        mediaUrl = path,
                         mediaType = if (item.isVideo) "video" else "photo",
                         sortOrder = index
                     )
                 }
                 database.commerceDao().insertProductMedia(mediaEntities)
-            }
+                mediaEntities
+            } else emptyList()
 
             database.telegramDao().markMessageProcessed(message.id)
             withContext(Dispatchers.Main) {
                 onComplete?.invoke(finalProduct)
+            }
+
+            // Téléchargement et persistance locale asynchrone des médias du produit
+            if (createdMediaEntities.isNotEmpty()) {
+                try {
+                    var newPrimary: String? = null
+                    val cachedMedia = createdMediaEntities.mapIndexed { idx, entity ->
+                        val cached = ProductMediaManager.cacheMediaLocally(app, entity.mediaUrl, "prod_${finalProduct.id}_")
+                        val finalUrl = cached ?: entity.mediaUrl
+                        if (idx == 0 || entity.mediaUrl == primaryImg) {
+                            newPrimary = finalUrl
+                        }
+                        entity.copy(mediaUrl = finalUrl)
+                    }
+                    database.commerceDao().insertProductMedia(cachedMedia)
+                    if (newPrimary != null && newPrimary != finalProduct.primaryImageUrl) {
+                        database.commerceDao().insertProduct(finalProduct.copy(primaryImageUrl = newPrimary))
+                    }
+                } catch (e: Exception) {
+                    android.util.Log.w("MainViewModel", "Erreur cache local médias produit: ${e.message}")
+                }
+            }
+        }
+    }
+
+    /**
+     * Répare automatiquement les fiches produits créées précédemment qui ont des chemins Termux non lisibles
+     * ou des chemins relatifs telegram_media/. Télécharge et met en cache localement les médias.
+     */
+    fun repairBrokenProductMedia() {
+        viewModelScope.launch(Dispatchers.IO) {
+            try {
+                val app = getApplication<Application>()
+                val products = database.commerceDao().getAllProductsList()
+                for (prod in products) {
+                    var updatedPrimary = prod.primaryImageUrl
+                    val primaryNeedsFix = prod.primaryImageUrl?.let {
+                        it.startsWith("/data/data/com.termux") ||
+                        (it.startsWith("/") && !File(it).canRead()) ||
+                        it.contains("telegram_media/") ||
+                        (it.startsWith("http://127.0.0.1") && it.contains("/media/"))
+                    } ?: false
+
+                    if (primaryNeedsFix && !prod.primaryImageUrl.isNullOrBlank()) {
+                        val cached = ProductMediaManager.cacheMediaLocally(app, prod.primaryImageUrl, "prod_${prod.id}_")
+                        if (cached != null && File(cached).exists()) {
+                            updatedPrimary = cached
+                        }
+                    }
+
+                    val mediaList = database.commerceDao().getProductMediaList(prod.id)
+                    var mediaUpdated = false
+                    val fixedMedia = mediaList.map { media ->
+                        val needsFix = media.mediaUrl.startsWith("/data/data/com.termux") ||
+                                (media.mediaUrl.startsWith("/") && !File(media.mediaUrl).canRead()) ||
+                                media.mediaUrl.contains("telegram_media/") ||
+                                (media.mediaUrl.startsWith("http://127.0.0.1") && media.mediaUrl.contains("/media/"))
+
+                        if (needsFix) {
+                            val cached = ProductMediaManager.cacheMediaLocally(app, media.mediaUrl, "prod_${prod.id}_")
+                            if (cached != null) {
+                                mediaUpdated = true
+                                media.copy(mediaUrl = cached)
+                            } else media
+                        } else media
+                    }
+
+                    if (mediaUpdated) {
+                        database.commerceDao().insertProductMedia(fixedMedia)
+                    }
+
+                    if (updatedPrimary == null && fixedMedia.isNotEmpty()) {
+                        updatedPrimary = fixedMedia.firstOrNull { it.mediaType != "video" }?.mediaUrl
+                            ?: fixedMedia.firstOrNull()?.mediaUrl
+                    }
+
+                    if (updatedPrimary != prod.primaryImageUrl) {
+                        database.commerceDao().insertProduct(prod.copy(primaryImageUrl = updatedPrimary))
+                    }
+                }
+            } catch (e: Exception) {
+                android.util.Log.w("MainViewModel", "Erreur repairBrokenProductMedia: ${e.message}")
             }
         }
     }

@@ -45,6 +45,9 @@ import com.example.ui.components.MediaCarousel
 import androidx.compose.ui.layout.ContentScale
 import androidx.compose.ui.text.style.TextOverflow
 import coil.compose.AsyncImage
+import coil.compose.SubcomposeAsyncImage
+import android.widget.Toast
+import java.io.File
 import androidx.compose.material3.AlertDialog
 import androidx.compose.material3.Button
 import androidx.compose.material3.ButtonDefaults
@@ -472,38 +475,44 @@ private fun ProductCardItem(
                     contentAlignment = Alignment.Center
                 ) {
                     if (resolvedModel != null) {
-                        var loadFailed by remember(resolvedModel) { mutableStateOf(false) }
-                        if (!loadFailed) {
-                            AsyncImage(
-                                model = ImageRequest.Builder(context)
-                                    .data(resolvedModel)
-                                    .crossfade(true)
-                                    .build(),
-                                contentDescription = product.title,
-                                contentScale = ContentScale.Crop,
-                                onError = { loadFailed = true },
-                                modifier = Modifier.fillMaxSize()
-                            )
-                        } else {
-                            Column(
-                                horizontalAlignment = Alignment.CenterHorizontally,
-                                verticalArrangement = Arrangement.Center,
-                                modifier = Modifier.padding(4.dp)
-                            ) {
-                                Icon(
-                                    Icons.Default.PhotoLibrary,
-                                    contentDescription = null,
-                                    tint = ElegantTextSecondary.copy(alpha = 0.5f),
-                                    modifier = Modifier.size(22.dp)
-                                )
-                                Spacer(modifier = Modifier.height(2.dp))
-                                Text(
-                                    "Aperçu",
-                                    color = ElegantTextSecondary.copy(alpha = 0.6f),
-                                    fontSize = 9.sp
-                                )
+                        SubcomposeAsyncImage(
+                            model = ImageRequest.Builder(context)
+                                .data(resolvedModel)
+                                .crossfade(true)
+                                .build(),
+                            contentDescription = product.title,
+                            contentScale = ContentScale.Crop,
+                            modifier = Modifier.fillMaxSize(),
+                            loading = {
+                                Box(Modifier.fillMaxSize(), contentAlignment = Alignment.Center) {
+                                    CircularProgressIndicator(
+                                        modifier = Modifier.size(18.dp),
+                                        strokeWidth = 2.dp,
+                                        color = Color(0xFFF59E0B)
+                                    )
+                                }
+                            },
+                            error = {
+                                Column(
+                                    horizontalAlignment = Alignment.CenterHorizontally,
+                                    verticalArrangement = Arrangement.Center,
+                                    modifier = Modifier.padding(4.dp)
+                                ) {
+                                    Icon(
+                                        Icons.Default.PhotoLibrary,
+                                        contentDescription = null,
+                                        tint = ElegantTextSecondary.copy(alpha = 0.5f),
+                                        modifier = Modifier.size(22.dp)
+                                    )
+                                    Spacer(modifier = Modifier.height(2.dp))
+                                    Text(
+                                        "Aperçu",
+                                        color = ElegantTextSecondary.copy(alpha = 0.6f),
+                                        fontSize = 9.sp
+                                    )
+                                }
                             }
-                        }
+                        )
 
                         if (isVideo) {
                             Surface(
@@ -1293,14 +1302,36 @@ private fun ProductEditDialog(
                                             )
                                             .clickable { primaryMediaId = item.id }
                                     ) {
-                                        AsyncImage(
+                                        SubcomposeAsyncImage(
                                             model = ImageRequest.Builder(context)
                                                 .data(displayModel)
                                                 .crossfade(true)
                                                 .build(),
                                             contentDescription = "Média produit",
                                             contentScale = ContentScale.Crop,
-                                            modifier = Modifier.fillMaxSize()
+                                            modifier = Modifier.fillMaxSize(),
+                                            loading = {
+                                                Box(Modifier.fillMaxSize(), contentAlignment = Alignment.Center) {
+                                                    CircularProgressIndicator(
+                                                        modifier = Modifier.size(18.dp),
+                                                        strokeWidth = 2.dp,
+                                                        color = ElegantPurpleAccent
+                                                    )
+                                                }
+                                            },
+                                            error = {
+                                                Box(
+                                                    modifier = Modifier.fillMaxSize().background(Color(0xFF1E293B)),
+                                                    contentAlignment = Alignment.Center
+                                                ) {
+                                                    Icon(
+                                                        imageVector = if (item.isVideo) Icons.Default.Videocam else Icons.Default.PhotoLibrary,
+                                                        contentDescription = null,
+                                                        tint = ElegantTextSecondary.copy(alpha = 0.6f),
+                                                        modifier = Modifier.size(20.dp)
+                                                    )
+                                                }
+                                            }
                                         )
 
                                         // Badge Miniature principale (Étoile)

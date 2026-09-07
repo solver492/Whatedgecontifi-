@@ -97,7 +97,9 @@ import androidx.activity.compose.rememberLauncherForActivityResult
 import androidx.activity.result.contract.ActivityResultContracts
 import androidx.activity.result.PickVisualMediaRequest
 import coil.compose.AsyncImage
+import coil.compose.SubcomposeAsyncImage
 import coil.request.ImageRequest
+import java.io.File
 import androidx.compose.ui.layout.ContentScale
 import androidx.compose.runtime.mutableStateListOf
 import androidx.compose.runtime.rememberCoroutineScope
@@ -1639,9 +1641,22 @@ fun CreateProductFromTelegramDialog(
     val mediaList = remember {
         mutableStateListOf<EditableMediaItem>().apply {
             message.getMediaItems().forEach { item ->
-                val path = item.localPath ?: item.url ?: ""
-                if (path.isNotBlank()) {
-                    add(EditableMediaItem(urlOrPath = path, isVideo = item.isVideo))
+                val usableLocal = item.localPath?.takeIf { File(it).canRead() && File(it).length() > 0 }
+                val targetPath = usableLocal ?: item.url ?: run {
+                    val p = item.localPath ?: ""
+                    if (p.contains("telegram_media/")) {
+                        val sub = p.substringAfter("telegram_media/").trimStart('/')
+                        val parts = sub.split("/")
+                        if (parts.size >= 3) {
+                            val ch = parts[0]
+                            val mid = parts[1]
+                            val fn = parts.drop(2).joinToString("/")
+                            "http://127.0.0.1:8088/media/$ch/$mid/$fn"
+                        } else p
+                    } else p
+                }
+                if (targetPath.isNotBlank()) {
+                    add(EditableMediaItem(urlOrPath = targetPath, isVideo = item.isVideo))
                 }
             }
         }
@@ -1649,6 +1664,19 @@ fun CreateProductFromTelegramDialog(
     var primaryMediaId by remember {
         mutableStateOf(mediaList.firstOrNull { !it.isVideo }?.id ?: mediaList.firstOrNull()?.id)
     }
+
+    // Pré-téléchargement et mise en cache locale transparente
+    LaunchedEffect(Unit) {
+        mediaList.forEachIndexed { index, item ->
+            if (item.urlOrPath.startsWith("http://") || item.urlOrPath.contains("telegram_media/")) {
+                val cached = ProductMediaManager.cacheMediaLocally(context, item.urlOrPath, "tg_draft_")
+                if (cached != null && File(cached).exists() && File(cached).length() > 0) {
+                    item.urlOrPath = cached
+                }
+            }
+        }
+    }
+
     var isProcessingMedia by remember { mutableStateOf(false) }
     var showAddUrlInput by remember { mutableStateOf(false) }
     var manualUrlText by remember { mutableStateOf("") }
@@ -1660,8 +1688,9 @@ fun CreateProductFromTelegramDialog(
         if (uris.isNotEmpty()) {
             coroutineScope.launch {
                 isProcessingMedia = true
+                var addedCount = 0
                 uris.forEach { uri ->
-                    val mime = context.contentResolver.getType(uri) ?: ""
+                    val mime = try { context.contentResolver.getType(uri) ?: "" } catch (e: Exception) { "" }
                     val isVid = mime.startsWith("video") || ProductMediaManager.isVideoUrlOrPath(uri.toString())
                     val savedPath = ProductMediaManager.saveUriToInternalStorage(context, uri, isVid)
                     if (savedPath != null) {
@@ -1674,9 +1703,15 @@ fun CreateProductFromTelegramDialog(
                         if (primaryMediaId == null) {
                             primaryMediaId = newItem.id
                         }
+                        addedCount++
                     }
                 }
                 isProcessingMedia = false
+                if (addedCount > 0) {
+                    Toast.makeText(context, "$addedCount média(s) ajouté(s) avec succès", Toast.LENGTH_SHORT).show()
+                } else {
+                    Toast.makeText(context, "Erreur lors de l'enregistrement des médias", Toast.LENGTH_SHORT).show()
+                }
             }
         }
     }
@@ -1797,7 +1832,7 @@ fun CreateProductFromTelegramDialog(
                                         modifier = Modifier
                                             .size(86.dp)
                                             .clip(RoundedCornerShape(8.dp))
-                                            .background(ElegantDarkSurface)
+                                            .background(Color(0xFF1E293B))
                                             .border(
                                                 width = if (isPrimary) 2.dp else 1.dp,
                                                 color = if (isPrimary) Color(0xFFF59E0B) else ElegantDarkBorder,
@@ -1805,14 +1840,43 @@ fun CreateProductFromTelegramDialog(
                                             )
                                             .clickable { primaryMediaId = item.id }
                                     ) {
-                                        AsyncImage(
+                                        SubcomposeAsyncImage(
                                             model = ImageRequest.Builder(context)
                                                 .data(displayModel)
                                                 .crossfade(true)
                                                 .build(),
                                             contentDescription = "Média produit",
                                             contentScale = ContentScale.Crop,
-                                            modifier = Modifier.fillMaxSize()
+                                            modifier = Modifier.fillMaxSize(),
+                                            loading = {
+                                                Box(Modifier.fillMaxSize(), contentAlignment = Alignment.Center) {
+                                                    CircularProgressIndicator(
+                                                        modifier = Modifier.size(20.dp),
+                                                        strokeWidth = 2.dp,
+                                                        color = ElegantGreenActive
+                                                    )
+                                                }
+                                            },
+                                            error = {
+                                                Box(
+                                                    modifier = Modifier.fillMaxSize().background(Color(0xFF1E293B)),
+                                                    contentAlignment = Alignment.Center
+                                                ) {
+                                                    Column(horizontalAlignment = Alignment.CenterHorizontally) {
+                                                        Icon(
+                                                            imageVector = if (item.isVideo) Icons.Default.Videocam else Icons.Default.PhotoLibrary,
+                                                            contentDescription = null,
+                                                            tint = ElegantTextSecondary.copy(alpha = 0.6f),
+                                                            modifier = Modifier.size(22.dp)
+                                                        )
+                                                        Text(
+                                                            if (item.isVideo) "Vidéo" else "Image",
+                                                            fontSize = 9.sp,
+                                                            color = ElegantTextSecondary.copy(alpha = 0.6f)
+                                                        )
+                                                    }
+                                                }
+                                            }
                                         )
 
                                         // Badge Miniature principale (Étoile)
@@ -2065,16 +2129,32 @@ fun CreateProductFromTelegramDialog(
                             val pPrice = purchasePriceInput.toDoubleOrNull()
                             val sPrice = sellingPriceInput.toDoubleOrNull()
                             val finalParsedMedia = mediaList.map { item ->
-                                val isLocal = item.urlOrPath.startsWith("/") || item.urlOrPath.startsWith("file://")
                                 val cleanPath = if (item.urlOrPath.startsWith("file://")) item.urlOrPath.removePrefix("file://") else item.urlOrPath
+                                val isLocal = cleanPath.startsWith("/")
+                                val isRealReadableFile = isLocal && File(cleanPath).let { it.canRead() && it.length() > 0 }
+                                val usableUrl = if (item.urlOrPath.startsWith("http://") || item.urlOrPath.startsWith("https://")) {
+                                    item.urlOrPath
+                                } else if (!isRealReadableFile && item.urlOrPath.contains("telegram_media/")) {
+                                    val sub = item.urlOrPath.substringAfter("telegram_media/").trimStart('/')
+                                    val parts = sub.split("/")
+                                    if (parts.size >= 3) {
+                                        val ch = parts[0]
+                                        val mid = parts[1]
+                                        val fn = parts.drop(2).joinToString("/")
+                                        "http://127.0.0.1:8088/media/$ch/$mid/$fn"
+                                    } else item.urlOrPath
+                                } else if (!isRealReadableFile && !isLocal) item.urlOrPath else null
+
                                 ParsedMediaItem(
-                                    url = if (isLocal) null else item.urlOrPath,
-                                    localPath = if (isLocal) cleanPath else null,
+                                    url = usableUrl,
+                                    localPath = if (isRealReadableFile) cleanPath else if (usableUrl == null) cleanPath else null,
                                     isVideo = item.isVideo
                                 )
                             }
                             val selectedPrimary = mediaList.find { it.id == primaryMediaId } ?: mediaList.firstOrNull()
-                            val primaryUrl = selectedPrimary?.urlOrPath
+                            val primaryUrl = selectedPrimary?.let { sel ->
+                                if (sel.urlOrPath.startsWith("file://")) sel.urlOrPath.removePrefix("file://") else sel.urlOrPath
+                            }
                             onConfirm(selectedCategoryId, title, pPrice, sPrice, finalParsedMedia, primaryUrl)
                         }
                     },
