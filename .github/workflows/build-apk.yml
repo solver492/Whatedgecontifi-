@@ -52,7 +52,22 @@ jobs:
             -dname "CN=Android Debug,O=Android,C=US"
 
 
+      - name: Configure CI Environment Secrets
+        run: |
+          echo "Configuring environment variables for Android CI build..."
+          echo "GEMINI_API_KEY=\"${{ secrets.GEMINI_API_KEY }}\"" >> .env
+          echo "SUPABASE_URL=\"${{ secrets.SUPABASE_URL }}\"" >> .env
+          echo "SUPABASE_ANON_KEY=\"${{ secrets.SUPABASE_ANON_KEY }}\"" >> .env
+          echo "TELEGRAM_API_ID=\"${{ secrets.TELEGRAM_API_ID }}\"" >> .env
+          echo "TELEGRAM_API_HASH=\"${{ secrets.TELEGRAM_API_HASH }}\"" >> .env
+
       - name: Build Debug APK
+        env:
+          GEMINI_API_KEY: ${{ secrets.GEMINI_API_KEY }}
+          SUPABASE_URL: ${{ secrets.SUPABASE_URL }}
+          SUPABASE_ANON_KEY: ${{ secrets.SUPABASE_ANON_KEY }}
+          TELEGRAM_API_ID: ${{ secrets.TELEGRAM_API_ID }}
+          TELEGRAM_API_HASH: ${{ secrets.TELEGRAM_API_HASH }}
         run: gradle assembleDebug
 
 

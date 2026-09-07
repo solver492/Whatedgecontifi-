@@ -1,4 +1,6 @@
 import com.google.gms.googleservices.GoogleServicesPlugin.MissingGoogleServicesStrategy
+import java.util.Properties
+import java.io.FileInputStream
 
 plugins {
   alias(libs.plugins.android.application)
@@ -21,6 +23,40 @@ android {
     versionName = "1.0"
 
     testInstrumentationRunner = "androidx.test.runner.AndroidJUnitRunner"
+
+    // Safe environment variable resolution with guaranteed quoted Java String literals
+    val envFile = rootProject.file(".env")
+    val envProps = Properties()
+    if (envFile.exists()) {
+      FileInputStream(envFile).use { envProps.load(it) }
+    }
+
+    val geminiApiKey = (System.getenv("GEMINI_API_KEY")
+      ?: envProps.getProperty("GEMINI_API_KEY")
+      ?: (project.findProperty("GEMINI_API_KEY") as? String)
+      ?: "").replace("\"", "\\\"")
+
+    val supabaseUrl = (System.getenv("SUPABASE_URL")
+      ?: envProps.getProperty("SUPABASE_URL")
+      ?: "").replace("\"", "\\\"")
+
+    val supabaseAnonKey = (System.getenv("SUPABASE_ANON_KEY")
+      ?: envProps.getProperty("SUPABASE_ANON_KEY")
+      ?: "").replace("\"", "\\\"")
+
+    val telegramApiId = (System.getenv("TELEGRAM_API_ID")
+      ?: envProps.getProperty("TELEGRAM_API_ID")
+      ?: "").replace("\"", "\\\"")
+
+    val telegramApiHash = (System.getenv("TELEGRAM_API_HASH")
+      ?: envProps.getProperty("TELEGRAM_API_HASH")
+      ?: "").replace("\"", "\\\"")
+
+    buildConfigField("String", "GEMINI_API_KEY", "\"$geminiApiKey\"")
+    buildConfigField("String", "SUPABASE_URL", "\"$supabaseUrl\"")
+    buildConfigField("String", "SUPABASE_ANON_KEY", "\"$supabaseAnonKey\"")
+    buildConfigField("String", "TELEGRAM_API_ID", "\"$telegramApiId\"")
+    buildConfigField("String", "TELEGRAM_API_HASH", "\"$telegramApiHash\"")
   }
 
   signingConfigs {
@@ -69,6 +105,11 @@ secrets {
   propertiesFileName = ".env"
   defaultPropertiesFileName = ".env.example"
   ignoreList.add("FIREBASE_APPCHECK_DEBUG_TOKEN")
+  ignoreList.add("GEMINI_API_KEY")
+  ignoreList.add("SUPABASE_URL")
+  ignoreList.add("SUPABASE_ANON_KEY")
+  ignoreList.add("TELEGRAM_API_ID")
+  ignoreList.add("TELEGRAM_API_HASH")
 }
 
 googleServices { missingGoogleServicesStrategy = MissingGoogleServicesStrategy.WARN }
