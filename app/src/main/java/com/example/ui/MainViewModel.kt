@@ -864,6 +864,25 @@ class MainViewModel(application: Application) : AndroidViewModel(application) {
         }
     }
 
+    fun saveProductWithMediaEntities(product: ProductEntity, mediaEntities: List<ProductMediaEntity>) {
+        viewModelScope.launch(Dispatchers.IO) {
+            database.commerceDao().insertProduct(product)
+            database.commerceDao().deleteMediaForProduct(product.id)
+            if (mediaEntities.isNotEmpty()) {
+                val reordered = mediaEntities.mapIndexed { index, item ->
+                    item.copy(productId = product.id, sortOrder = index)
+                }
+                database.commerceDao().insertProductMedia(reordered)
+            }
+        }
+    }
+
+    fun deleteProductMedia(mediaId: String) {
+        viewModelScope.launch(Dispatchers.IO) {
+            database.commerceDao().deleteProductMediaById(mediaId)
+        }
+    }
+
     fun getProductMedia(productId: String): kotlinx.coroutines.flow.Flow<List<ProductMediaEntity>> {
         return database.commerceDao().getMediaForProduct(productId)
     }

@@ -109,12 +109,26 @@ data class ParsedMediaItem(
                 return file
             }
         }
-        if (!url.isNullOrBlank()) {
-            if (url.startsWith("/")) {
-                val file = java.io.File(url)
-                if (file.exists()) return file
+        val target = url ?: localPath
+        if (!target.isNullOrBlank()) {
+            if (target.startsWith("content://")) return android.net.Uri.parse(target)
+            if (target.startsWith("file://")) return java.io.File(target.removePrefix("file://"))
+            if (target.startsWith("http://") || target.startsWith("https://")) return target
+            if (target.startsWith("/")) return java.io.File(target)
+            
+            // Chemins relatifs (ex: telethon_bridge/telegram_media/...)
+            val f = java.io.File(target)
+            if (f.exists()) return f
+            if (target.contains("telegram_media/")) {
+                val parts = target.substringAfter("telegram_media/").split("/")
+                if (parts.size >= 3) {
+                    val ch = parts[0]
+                    val mid = parts[1]
+                    val fn = parts.drop(2).joinToString("/")
+                    return "http://127.0.0.1:8088/media/$ch/$mid/$fn"
+                }
             }
-            return url
+            return target
         }
         return null
     }

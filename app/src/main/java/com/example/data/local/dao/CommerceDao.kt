@@ -54,6 +54,9 @@ interface CommerceDao {
     @Query("DELETE FROM ecommerce_product_media WHERE productId = :productId")
     suspend fun deleteMediaForProduct(productId: String)
 
+    @Query("DELETE FROM ecommerce_product_media WHERE id = :mediaId")
+    suspend fun deleteProductMediaById(mediaId: String)
+
     // --- CATÉGORIES ---
     @Query("SELECT * FROM ecommerce_categories ORDER BY name ASC")
     fun getAllCategories(): Flow<List<CategoryEntity>>

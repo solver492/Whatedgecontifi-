@@ -74,6 +74,24 @@ import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.ui.text.input.KeyboardType
 import androidx.compose.ui.unit.dp
 import androidx.compose.ui.unit.sp
+import androidx.activity.compose.rememberLauncherForActivityResult
+import androidx.activity.result.contract.ActivityResultContracts
+import androidx.activity.result.PickVisualMediaRequest
+import androidx.compose.material.icons.filled.Download
+import androidx.compose.material.icons.filled.Star
+import androidx.compose.material.icons.filled.StarBorder
+import androidx.compose.material.icons.filled.Link
+import androidx.compose.material.icons.filled.Image
+import androidx.compose.material.icons.filled.Refresh
+import androidx.compose.material3.CircularProgressIndicator
+import androidx.compose.runtime.rememberCoroutineScope
+import androidx.compose.runtime.mutableStateListOf
+import androidx.compose.ui.platform.LocalContext
+import androidx.compose.foundation.border
+import coil.request.ImageRequest
+import com.example.data.local.entity.ProductMediaEntity
+import com.example.util.ProductMediaManager
+import kotlinx.coroutines.launch
 import com.example.data.local.entity.ProductEntity
 import com.example.ui.MainViewModel
 import com.example.util.PriceFormatter
@@ -327,12 +345,13 @@ fun ProductsScreen(
             categories = categories,
             suppliers = suppliers,
             defaultCurrency = defaultCurrency,
+            viewModel = viewModel,
             onDismiss = {
                 showAddDialog = false
                 productToEdit = null
             },
-            onSave = { savedProd ->
-                viewModel.saveProduct(savedProd)
+            onSave = { savedProd, mediaEntities ->
+                viewModel.saveProductWithMediaEntities(savedProd, mediaEntities)
                 showAddDialog = false
                 productToEdit = null
             }
@@ -435,29 +454,97 @@ private fun ProductCardItem(
                 horizontalArrangement = Arrangement.spacedBy(10.dp),
                 verticalAlignment = Alignment.Top
             ) {
-                if (!product.primaryImageUrl.isNullOrBlank()) {
-                    val imgModel = remember(product.primaryImageUrl) {
-                        val path = product.primaryImageUrl
-                        if (path.startsWith("/")) {
-                            val f = java.io.File(path)
-                            if (f.exists()) f else path
+                val context = LocalContext.current
+                val resolvedModel = remember(product.primaryImageUrl) {
+                    ProductMediaManager.resolveMediaDisplayModel(context, product.primaryImageUrl)
+                }
+                val isVideo = remember(product.primaryImageUrl) {
+                    ProductMediaManager.isVideoUrlOrPath(product.primaryImageUrl)
+                }
+
+                Box(
+                    modifier = Modifier
+                        .size(72.dp)
+                        .clip(RoundedCornerShape(8.dp))
+                        .background(ElegantDarkSurfaceVariant)
+                        .border(1.dp, ElegantDarkBorder, RoundedCornerShape(8.dp))
+                        .clickable { onViewDetail() },
+                    contentAlignment = Alignment.Center
+                ) {
+                    if (resolvedModel != null) {
+                        var loadFailed by remember(resolvedModel) { mutableStateOf(false) }
+                        if (!loadFailed) {
+                            AsyncImage(
+                                model = ImageRequest.Builder(context)
+                                    .data(resolvedModel)
+                                    .crossfade(true)
+                                    .build(),
+                                contentDescription = product.title,
+                                contentScale = ContentScale.Crop,
+                                onError = { loadFailed = true },
+                                modifier = Modifier.fillMaxSize()
+                            )
                         } else {
-                            path
+                            Column(
+                                horizontalAlignment = Alignment.CenterHorizontally,
+                                verticalArrangement = Arrangement.Center,
+                                modifier = Modifier.padding(4.dp)
+                            ) {
+                                Icon(
+                                    Icons.Default.PhotoLibrary,
+                                    contentDescription = null,
+                                    tint = ElegantTextSecondary.copy(alpha = 0.5f),
+                                    modifier = Modifier.size(22.dp)
+                                )
+                                Spacer(modifier = Modifier.height(2.dp))
+                                Text(
+                                    "Aperçu",
+                                    color = ElegantTextSecondary.copy(alpha = 0.6f),
+                                    fontSize = 9.sp
+                                )
+                            }
                         }
-                    }
-                    Box(
-                        modifier = Modifier
-                            .size(68.dp)
-                            .clip(RoundedCornerShape(8.dp))
-                            .background(ElegantDarkBg)
-                            .clickable { onViewDetail() }
-                    ) {
-                        AsyncImage(
-                            model = imgModel,
-                            contentDescription = product.title,
-                            contentScale = ContentScale.Crop,
-                            modifier = Modifier.fillMaxSize()
-                        )
+
+                        if (isVideo) {
+                            Surface(
+                                shape = RoundedCornerShape(topStart = 4.dp),
+                                color = Color(0xFFE53935).copy(alpha = 0.9f),
+                                modifier = Modifier.align(Alignment.BottomEnd)
+                            ) {
+                                Row(
+                                    modifier = Modifier.padding(horizontal = 4.dp, vertical = 2.dp),
+                                    verticalAlignment = Alignment.CenterVertically
+                                ) {
+                                    Icon(
+                                        Icons.Default.Videocam,
+                                        contentDescription = null,
+                                        tint = Color.White,
+                                        modifier = Modifier.size(10.dp)
+                                    )
+                                    Spacer(modifier = Modifier.width(2.dp))
+                                    Text("VID", color = Color.White, fontSize = 8.sp, fontWeight = FontWeight.Bold)
+                                }
+                            }
+                        }
+                    } else {
+                        Column(
+                            horizontalAlignment = Alignment.CenterHorizontally,
+                            verticalArrangement = Arrangement.Center,
+                            modifier = Modifier.padding(4.dp)
+                        ) {
+                            Icon(
+                                Icons.Default.Inventory2,
+                                contentDescription = null,
+                                tint = ElegantTextSecondary.copy(alpha = 0.4f),
+                                modifier = Modifier.size(24.dp)
+                            )
+                            Spacer(modifier = Modifier.height(2.dp))
+                            Text(
+                                "Sans média",
+                                color = ElegantTextSecondary.copy(alpha = 0.5f),
+                                fontSize = 9.sp
+                            )
+                        }
                     }
                 }
 
@@ -638,7 +725,7 @@ private fun ProductDetailDialog(
                 ParsedMediaItem(
                     url = if (isLocal) null else mUrl,
                     localPath = if (isLocal) cleanPath else null,
-                    isVideo = (entity.mediaType == "video")
+                    isVideo = (entity.mediaType == "video") || ProductMediaManager.isVideoUrlOrPath(mUrl)
                 )
             }
         } else if (!product.primaryImageUrl.isNullOrBlank()) {
@@ -649,7 +736,7 @@ private fun ProductDetailDialog(
                 ParsedMediaItem(
                     url = if (isLocal) null else pUrl,
                     localPath = if (isLocal) cleanPath else null,
-                    isVideo = pUrl.endsWith(".mp4") || pUrl.endsWith(".mov")
+                    isVideo = ProductMediaManager.isVideoUrlOrPath(pUrl)
                 )
             )
         } else {
@@ -658,6 +745,8 @@ private fun ProductDetailDialog(
     }
 
     val displayCurrency = if (product.currency.isNotBlank() && product.currency != "FCFA") product.currency else appCurrency
+    val context = LocalContext.current
+    val coroutineScope = rememberCoroutineScope()
 
     AlertDialog(
         onDismissRequest = onDismiss,
@@ -694,6 +783,43 @@ private fun ProductDetailDialog(
                         height = 230.dp,
                         modifier = Modifier.fillMaxWidth()
                     )
+
+                    // Actions Téléchargement & Modification Médias
+                    Row(
+                        modifier = Modifier.fillMaxWidth(),
+                        horizontalArrangement = Arrangement.spacedBy(8.dp),
+                        verticalAlignment = Alignment.CenterVertically
+                    ) {
+                        OutlinedButton(
+                            onClick = {
+                                coroutineScope.launch {
+                                    val firstItem = parsedMedia.firstOrNull()
+                                    val targetPath = firstItem?.localPath ?: firstItem?.url ?: product.primaryImageUrl
+                                    ProductMediaManager.downloadMediaToDevice(context, targetPath, product.title)
+                                }
+                            },
+                            shape = RoundedCornerShape(8.dp),
+                            border = BorderStroke(1.dp, ElegantDarkBorder),
+                            colors = ButtonDefaults.outlinedButtonColors(contentColor = ElegantTextPrimary),
+                            modifier = Modifier.weight(1f)
+                        ) {
+                            Icon(Icons.Default.Download, contentDescription = null, modifier = Modifier.size(16.dp))
+                            Spacer(modifier = Modifier.width(6.dp))
+                            Text("Télécharger", fontSize = 12.sp)
+                        }
+
+                        OutlinedButton(
+                            onClick = onEdit,
+                            shape = RoundedCornerShape(8.dp),
+                            border = BorderStroke(1.dp, ElegantPurpleAccent),
+                            colors = ButtonDefaults.outlinedButtonColors(contentColor = ElegantPurpleAccent),
+                            modifier = Modifier.weight(1f)
+                        ) {
+                            Icon(Icons.Default.PhotoLibrary, contentDescription = null, modifier = Modifier.size(16.dp))
+                            Spacer(modifier = Modifier.width(6.dp))
+                            Text("Gérer Médias", fontSize = 12.sp)
+                        }
+                    }
                 }
 
                 // Badges Catégorie et Statut
@@ -873,15 +999,25 @@ private fun ProductDetailDialog(
     )
 }
 
+data class EditableMediaItem(
+    val id: String = UUID.randomUUID().toString(),
+    val urlOrPath: String,
+    val isVideo: Boolean = false
+)
+
 @Composable
 private fun ProductEditDialog(
     initialProduct: ProductEntity?,
     categories: List<com.example.data.local.entity.CategoryEntity>,
     suppliers: List<com.example.data.local.entity.SupplierEntity>,
     defaultCurrency: String,
+    viewModel: MainViewModel,
     onDismiss: () -> Unit,
-    onSave: (ProductEntity) -> Unit
+    onSave: (ProductEntity, List<ProductMediaEntity>) -> Unit
 ) {
+    val context = LocalContext.current
+    val coroutineScope = rememberCoroutineScope()
+
     var title by remember { mutableStateOf(initialProduct?.title ?: "") }
     var description by remember { mutableStateOf(initialProduct?.description ?: "") }
     var sellPrice by remember { mutableStateOf(initialProduct?.sellingPrice?.toString() ?: "") }
@@ -889,10 +1025,83 @@ private fun ProductEditDialog(
     var stock by remember { mutableStateOf(initialProduct?.stockQuantity?.toString() ?: "10") }
     var selectedCatId by remember { mutableStateOf(initialProduct?.categoryId) }
     var selectedSupId by remember { mutableStateOf(initialProduct?.supplierId ?: suppliers.firstOrNull()?.id) }
-    var imageUrl by remember { mutableStateOf(initialProduct?.primaryImageUrl ?: "") }
     var isLot by remember { mutableStateOf(initialProduct?.isLotOrPackPrice ?: false) }
     var lotQty by remember { mutableStateOf(initialProduct?.lotQuantity?.toString() ?: "") }
     var lotTotal by remember { mutableStateOf(initialProduct?.lotTotalPrice?.let { if (it % 1.0 == 0.0) it.toInt().toString() else it.toString() } ?: "") }
+
+    // Gestion des Médias (Photos & Vidéos)
+    val existingMediaEntities by if (initialProduct != null) {
+        viewModel.getProductMedia(initialProduct.id).collectAsState(initial = null)
+    } else {
+        remember { mutableStateOf(null) }
+    }
+
+    val mediaList = remember { mutableStateListOf<EditableMediaItem>() }
+    var primaryMediaId by remember { mutableStateOf<String?>(null) }
+    var isMediaInitialized by remember { mutableStateOf(false) }
+    var isProcessingMedia by remember { mutableStateOf(false) }
+    var showAddUrlInput by remember { mutableStateOf(false) }
+    var manualUrlText by remember { mutableStateOf("") }
+
+    androidx.compose.runtime.LaunchedEffect(existingMediaEntities) {
+        if (!isMediaInitialized) {
+            val entities = existingMediaEntities
+            if (entities != null && entities.isNotEmpty()) {
+                mediaList.clear()
+                entities.forEachIndexed { index, ent ->
+                    val item = EditableMediaItem(
+                        id = ent.id,
+                        urlOrPath = ent.mediaUrl,
+                        isVideo = ent.mediaType == "video" || ProductMediaManager.isVideoUrlOrPath(ent.mediaUrl)
+                    )
+                    mediaList.add(item)
+                    if (index == 0 && primaryMediaId == null) {
+                        primaryMediaId = item.id
+                    }
+                }
+                isMediaInitialized = true
+            } else if (entities != null && entities.isEmpty()) {
+                if (!initialProduct?.primaryImageUrl.isNullOrBlank() && mediaList.isEmpty()) {
+                    val pUrl = initialProduct!!.primaryImageUrl!!
+                    val item = EditableMediaItem(
+                        urlOrPath = pUrl,
+                        isVideo = ProductMediaManager.isVideoUrlOrPath(pUrl)
+                    )
+                    mediaList.add(item)
+                    primaryMediaId = item.id
+                }
+                isMediaInitialized = true
+            }
+        }
+    }
+
+    // Sélecteur Android officiel : sélectionne photos et vidéos sans permission invasive
+    val mediaPickerLauncher = rememberLauncherForActivityResult(
+        contract = ActivityResultContracts.PickMultipleVisualMedia(maxItems = 10)
+    ) { uris ->
+        if (uris.isNotEmpty()) {
+            coroutineScope.launch {
+                isProcessingMedia = true
+                uris.forEach { uri ->
+                    val mime = context.contentResolver.getType(uri) ?: ""
+                    val isVid = mime.startsWith("video") || ProductMediaManager.isVideoUrlOrPath(uri.toString())
+                    val savedPath = ProductMediaManager.saveUriToInternalStorage(context, uri, isVid)
+                    if (savedPath != null) {
+                        val newItem = EditableMediaItem(
+                            id = UUID.randomUUID().toString(),
+                            urlOrPath = savedPath,
+                            isVideo = isVid
+                        )
+                        mediaList.add(newItem)
+                        if (primaryMediaId == null) {
+                            primaryMediaId = newItem.id
+                        }
+                    }
+                }
+                isProcessingMedia = false
+            }
+        }
+    }
 
     AlertDialog(
         onDismissRequest = onDismiss,
@@ -907,7 +1116,9 @@ private fun ProductEditDialog(
         },
         text = {
             Column(
-                modifier = Modifier.fillMaxWidth(),
+                modifier = Modifier
+                    .fillMaxWidth()
+                    .verticalScroll(rememberScrollState()),
                 verticalArrangement = Arrangement.spacedBy(8.dp)
             ) {
                 OutlinedTextField(
@@ -1023,13 +1234,218 @@ private fun ProductEditDialog(
                     modifier = Modifier.fillMaxWidth()
                 )
 
-                OutlinedTextField(
-                    value = imageUrl,
-                    onValueChange = { imageUrl = it },
-                    label = { Text("URL Photo / Image (Optionnel)") },
-                    singleLine = true,
+                // --- SECTION MÉDIAS (PHOTOS & VIDÉOS) ---
+                Surface(
+                    shape = RoundedCornerShape(10.dp),
+                    color = ElegantDarkBg,
+                    border = BorderStroke(1.dp, ElegantDarkBorder),
                     modifier = Modifier.fillMaxWidth()
-                )
+                ) {
+                    Column(modifier = Modifier.padding(10.dp)) {
+                        Row(
+                            modifier = Modifier.fillMaxWidth(),
+                            horizontalArrangement = Arrangement.SpaceBetween,
+                            verticalAlignment = Alignment.CenterVertically
+                        ) {
+                            Column {
+                                Text(
+                                    "Photos & Vidéos (${mediaList.size})",
+                                    color = ElegantTextPrimary,
+                                    fontSize = 13.sp,
+                                    fontWeight = FontWeight.Bold
+                                )
+                                Text(
+                                    "Cliquez pour choisir la miniature principale ★",
+                                    color = ElegantTextSecondary,
+                                    fontSize = 10.sp
+                                )
+                            }
+                            if (isProcessingMedia) {
+                                CircularProgressIndicator(modifier = Modifier.size(16.dp), strokeWidth = 2.dp, color = ElegantPurpleAccent)
+                            }
+                        }
+
+                        Spacer(modifier = Modifier.height(8.dp))
+
+                        // Liste horizontale des visuels avec miniature, badges et actions
+                        if (mediaList.isNotEmpty()) {
+                            Row(
+                                modifier = Modifier
+                                    .fillMaxWidth()
+                                    .horizontalScroll(rememberScrollState()),
+                                horizontalArrangement = Arrangement.spacedBy(8.dp)
+                            ) {
+                                mediaList.forEach { item ->
+                                    val isPrimary = (primaryMediaId == item.id) || (primaryMediaId == null && mediaList.firstOrNull()?.id == item.id)
+                                    val displayModel = remember(item.urlOrPath) {
+                                        ProductMediaManager.resolveMediaDisplayModel(context, item.urlOrPath)
+                                    }
+
+                                    Box(
+                                        modifier = Modifier
+                                            .size(82.dp)
+                                            .clip(RoundedCornerShape(8.dp))
+                                            .background(ElegantDarkSurfaceVariant)
+                                            .border(
+                                                width = if (isPrimary) 2.dp else 1.dp,
+                                                color = if (isPrimary) Color(0xFFF59E0B) else ElegantDarkBorder,
+                                                shape = RoundedCornerShape(8.dp)
+                                            )
+                                            .clickable { primaryMediaId = item.id }
+                                    ) {
+                                        AsyncImage(
+                                            model = ImageRequest.Builder(context)
+                                                .data(displayModel)
+                                                .crossfade(true)
+                                                .build(),
+                                            contentDescription = "Média produit",
+                                            contentScale = ContentScale.Crop,
+                                            modifier = Modifier.fillMaxSize()
+                                        )
+
+                                        // Badge Miniature principale (Étoile)
+                                        if (isPrimary) {
+                                            Surface(
+                                                shape = RoundedCornerShape(bottomEnd = 6.dp),
+                                                color = Color(0xFFF59E0B),
+                                                modifier = Modifier.align(Alignment.TopStart)
+                                            ) {
+                                                Row(
+                                                    modifier = Modifier.padding(horizontal = 4.dp, vertical = 2.dp),
+                                                    verticalAlignment = Alignment.CenterVertically
+                                                ) {
+                                                    Icon(Icons.Default.Star, contentDescription = null, tint = Color.Black, modifier = Modifier.size(10.dp))
+                                                    Spacer(modifier = Modifier.width(2.dp))
+                                                    Text("Miniature", color = Color.Black, fontSize = 8.sp, fontWeight = FontWeight.Bold)
+                                                }
+                                            }
+                                        }
+
+                                        // Badge Vidéo
+                                        if (item.isVideo) {
+                                            Surface(
+                                                shape = RoundedCornerShape(topStart = 6.dp),
+                                                color = Color(0xFFE53935).copy(alpha = 0.9f),
+                                                modifier = Modifier.align(Alignment.BottomStart)
+                                            ) {
+                                                Icon(Icons.Default.Videocam, contentDescription = null, tint = Color.White, modifier = Modifier.size(14.dp).padding(2.dp))
+                                            }
+                                        }
+
+                                        // Actions flottantes sur le média : Télécharger et Supprimer
+                                        Row(
+                                            modifier = Modifier
+                                                .align(Alignment.TopEnd)
+                                                .padding(2.dp),
+                                            horizontalArrangement = Arrangement.spacedBy(3.dp)
+                                        ) {
+                                            // Télécharger vers galerie
+                                            Box(
+                                                modifier = Modifier
+                                                    .size(22.dp)
+                                                    .background(Color.Black.copy(alpha = 0.75f), CircleShape)
+                                                    .clickable {
+                                                        coroutineScope.launch {
+                                                            ProductMediaManager.downloadMediaToDevice(context, item.urlOrPath, title.ifBlank { "produit" })
+                                                        }
+                                                    },
+                                                contentAlignment = Alignment.Center
+                                            ) {
+                                                Icon(Icons.Default.Download, contentDescription = "Télécharger", tint = Color.White, modifier = Modifier.size(12.dp))
+                                            }
+
+                                            // Supprimer média
+                                            Box(
+                                                modifier = Modifier
+                                                    .size(22.dp)
+                                                    .background(Color(0xFFEF4444).copy(alpha = 0.85f), CircleShape)
+                                                    .clickable {
+                                                        mediaList.remove(item)
+                                                        if (primaryMediaId == item.id) {
+                                                            primaryMediaId = mediaList.firstOrNull()?.id
+                                                        }
+                                                    },
+                                                contentAlignment = Alignment.Center
+                                            ) {
+                                                Icon(Icons.Default.Close, contentDescription = "Supprimer", tint = Color.White, modifier = Modifier.size(12.dp))
+                                            }
+                                        }
+                                    }
+                                }
+                            }
+
+                            Spacer(modifier = Modifier.height(8.dp))
+                        }
+
+                        // Boutons d'ajout : Galerie (+ Photos/Vidéos) et URL
+                        Row(
+                            modifier = Modifier.fillMaxWidth(),
+                            horizontalArrangement = Arrangement.spacedBy(8.dp)
+                        ) {
+                            Button(
+                                onClick = {
+                                    mediaPickerLauncher.launch(
+                                        PickVisualMediaRequest(ActivityResultContracts.PickVisualMedia.ImageAndVideo)
+                                    )
+                                },
+                                colors = ButtonDefaults.buttonColors(containerColor = ElegantPurpleAccent.copy(alpha = 0.25f)),
+                                border = BorderStroke(1.dp, ElegantPurpleAccent),
+                                shape = RoundedCornerShape(8.dp),
+                                modifier = Modifier.weight(1f)
+                            ) {
+                                Icon(Icons.Default.PhotoLibrary, contentDescription = null, tint = ElegantPurpleAccent, modifier = Modifier.size(15.dp))
+                                Spacer(modifier = Modifier.width(6.dp))
+                                Text("Ajouter Médias (Galerie)", color = Color.White, fontSize = 11.sp, fontWeight = FontWeight.SemiBold)
+                            }
+
+                            OutlinedButton(
+                                onClick = { showAddUrlInput = !showAddUrlInput },
+                                shape = RoundedCornerShape(8.dp),
+                                border = BorderStroke(1.dp, ElegantDarkBorder),
+                                colors = ButtonDefaults.outlinedButtonColors(contentColor = ElegantTextSecondary)
+                            ) {
+                                Icon(Icons.Default.Link, contentDescription = null, modifier = Modifier.size(14.dp))
+                                Spacer(modifier = Modifier.width(4.dp))
+                                Text("URL", fontSize = 11.sp)
+                            }
+                        }
+
+                        if (showAddUrlInput) {
+                            Spacer(modifier = Modifier.height(6.dp))
+                            Row(
+                                modifier = Modifier.fillMaxWidth(),
+                                verticalAlignment = Alignment.CenterVertically,
+                                horizontalArrangement = Arrangement.spacedBy(6.dp)
+                            ) {
+                                OutlinedTextField(
+                                    value = manualUrlText,
+                                    onValueChange = { manualUrlText = it },
+                                    label = { Text("https://...") },
+                                    singleLine = true,
+                                    modifier = Modifier.weight(1f)
+                                )
+                                Button(
+                                    onClick = {
+                                        if (manualUrlText.isNotBlank()) {
+                                            val newItem = EditableMediaItem(
+                                                urlOrPath = manualUrlText.trim(),
+                                                isVideo = ProductMediaManager.isVideoUrlOrPath(manualUrlText)
+                                            )
+                                            mediaList.add(newItem)
+                                            if (primaryMediaId == null) primaryMediaId = newItem.id
+                                            manualUrlText = ""
+                                            showAddUrlInput = false
+                                        }
+                                    },
+                                    shape = RoundedCornerShape(8.dp),
+                                    colors = ButtonDefaults.buttonColors(containerColor = ElegantPurpleAccent)
+                                ) {
+                                    Text("OK", fontSize = 11.sp)
+                                }
+                            }
+                        }
+                    }
+                }
 
                 if (categories.isNotEmpty()) {
                     Text("Catégorie & Routage IA :", color = ElegantTextSecondary, fontSize = 11.sp)
@@ -1079,8 +1495,12 @@ private fun ProductEditDialog(
                 Button(
                     onClick = {
                         if (title.isNotBlank()) {
+                            val finalProductId = initialProduct?.id ?: "prod-${UUID.randomUUID().toString().take(8)}"
+                            val selectedPrimary = mediaList.find { it.id == primaryMediaId } ?: mediaList.firstOrNull()
+                            val finalPrimaryUrl = selectedPrimary?.urlOrPath
+
                             val product = (initialProduct ?: ProductEntity(
-                                id = "prod-${UUID.randomUUID().toString().take(8)}",
+                                id = finalProductId,
                                 title = title,
                                 currency = defaultCurrency
                             )).copy(
@@ -1091,7 +1511,7 @@ private fun ProductEditDialog(
                                 stockQuantity = stock.toIntOrNull() ?: 0,
                                 categoryId = selectedCatId,
                                 supplierId = selectedSupId,
-                                primaryImageUrl = imageUrl.ifBlank { null },
+                                primaryImageUrl = finalPrimaryUrl,
                                 currency = if (initialProduct?.currency.isNullOrBlank() || initialProduct?.currency == "FCFA") defaultCurrency else initialProduct!!.currency,
                                 isLotOrPackPrice = isLot,
                                 lotQuantity = if (isLot) lotQty.toIntOrNull() else null,
@@ -1103,7 +1523,18 @@ private fun ProductEditDialog(
                                 needsPriceReview = false,
                                 updatedAt = System.currentTimeMillis()
                             )
-                            onSave(product)
+
+                            val finalMediaEntities = mediaList.mapIndexed { idx, item ->
+                                ProductMediaEntity(
+                                    id = item.id,
+                                    productId = finalProductId,
+                                    mediaUrl = item.urlOrPath,
+                                    mediaType = if (item.isVideo) "video" else "photo",
+                                    sortOrder = idx
+                                )
+                            }
+
+                            onSave(product, finalMediaEntities)
                         }
                     },
                     colors = ButtonDefaults.buttonColors(containerColor = ElegantPurpleAccent),
