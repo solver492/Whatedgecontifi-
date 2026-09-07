@@ -470,41 +470,56 @@ class MainViewModel(application: Application) : AndroidViewModel(application) {
     // --- Conversation-Level Agent Controls ---
     fun setConversationAiEnabled(remoteJid: String, contactName: String, isEnabled: Boolean) {
         viewModelScope.launch(Dispatchers.IO) {
-            val cleanJid = remoteJid.trim()
-            val rawNumber = cleanJid.substringBefore("@").replace("+", "").replace(" ", "").trim()
-            val jidFormatted = if (!cleanJid.contains("@")) "$rawNumber@s.whatsapp.net" else cleanJid
+            val canonicalJid = PhoneNumberUtils.toCanonicalJid(remoteJid)
+            val cleanPhone = PhoneNumberUtils.extractCleanDigits(remoteJid)
+            val all = database.agentDao().getAllConversationOverridesList()
+            val existing = PhoneNumberUtils.findOverride(all, remoteJid)
 
-            val existing = database.agentDao().getConversationOverride(jidFormatted)
-                ?: database.agentDao().getConversationOverride(cleanJid)
-                ?: database.agentDao().getConversationOverride(rawNumber)
-
-            val updated = existing?.copy(
-                remoteJid = jidFormatted,
-                isAiEnabled = isEnabled,
-                contactName = if (contactName.isNotBlank()) contactName else existing.contactName,
-                updatedAt = System.currentTimeMillis()
-            ) ?: ConversationAgentOverrideEntity(
-                remoteJid = jidFormatted,
-                contactName = contactName,
-                isAiEnabled = isEnabled,
-                forcedAgentId = null,
-                disabledAgentIdsCsv = "",
-                updatedAt = System.currentTimeMillis()
-            )
-            database.agentDao().insertOrUpdateConversationOverride(updated)
-            if (cleanJid != jidFormatted) {
-                database.agentDao().insertOrUpdateConversationOverride(updated.copy(remoteJid = cleanJid))
+            if (isEnabled) {
+                // Si l'utilisateur réactive l'IA :
+                if (existing == null || (existing.forcedAgentId == null && existing.disabledAgentIdsCsv.isBlank())) {
+                    if (existing != null) {
+                        database.agentDao().deleteConversationOverride(existing.remoteJid)
+                    }
+                    database.agentDao().deleteConversationOverride(canonicalJid)
+                    database.agentDao().deleteConversationOverride(remoteJid)
+                    if (cleanPhone.isNotBlank()) database.agentDao().deleteConversationOverride(cleanPhone)
+                } else {
+                    val updated = existing.copy(
+                        remoteJid = canonicalJid,
+                        isAiEnabled = true,
+                        contactName = if (contactName.isNotBlank()) contactName else existing.contactName,
+                        updatedAt = System.currentTimeMillis()
+                    )
+                    database.agentDao().insertOrUpdateConversationOverride(updated)
+                }
+                _syncMessage.value = "IA activée pour $contactName (Réponses automatiques rétablies)"
+            } else {
+                // Mode Humain désactivé spécifiquement pour CE numéro
+                val updated = existing?.copy(
+                    remoteJid = canonicalJid,
+                    isAiEnabled = false,
+                    contactName = if (contactName.isNotBlank()) contactName else existing.contactName,
+                    updatedAt = System.currentTimeMillis()
+                ) ?: ConversationAgentOverrideEntity(
+                    remoteJid = canonicalJid,
+                    contactName = if (contactName.isNotBlank()) contactName else remoteJid,
+                    isAiEnabled = false,
+                    forcedAgentId = null,
+                    disabledAgentIdsCsv = "",
+                    updatedAt = System.currentTimeMillis()
+                )
+                database.agentDao().insertOrUpdateConversationOverride(updated)
+                _syncMessage.value = "Mode Humain activé pour $contactName (IA désactivée uniquement pour ce client)"
             }
-            if (rawNumber.isNotBlank() && rawNumber != jidFormatted && rawNumber != cleanJid) {
-                database.agentDao().insertOrUpdateConversationOverride(updated.copy(remoteJid = rawNumber))
-            }
-            _syncMessage.value = if (isEnabled) "IA activée pour $remoteJid" else "IA désactivée pour $remoteJid (Mode Humain)"
         }
     }
 
     fun toggleAgentForConversation(remoteJid: String, contactName: String, agentId: String, enable: Boolean) {
         viewModelScope.launch(Dispatchers.IO) {
-            val existing = database.agentDao().getConversationOverride(remoteJid)
+            val canonicalJid = PhoneNumberUtils.toCanonicalJid(remoteJid)
+            val all = database.agentDao().getAllConversationOverridesList()
+            val existing = PhoneNumberUtils.findOverride(all, remoteJid)
             val currentDisabled = existing?.disabledAgentIdsCsv?.split(",")?.map { it.trim() }?.filter { it.isNotEmpty() }?.toMutableSet() ?: mutableSetOf()
             if (enable) {
                 currentDisabled.remove(agentId)
@@ -512,11 +527,12 @@ class MainViewModel(application: Application) : AndroidViewModel(application) {
                 currentDisabled.add(agentId)
             }
             val updated = existing?.copy(
+                remoteJid = canonicalJid,
                 disabledAgentIdsCsv = currentDisabled.joinToString(","),
                 contactName = if (contactName.isNotBlank()) contactName else existing.contactName,
                 updatedAt = System.currentTimeMillis()
             ) ?: ConversationAgentOverrideEntity(
-                remoteJid = remoteJid,
+                remoteJid = canonicalJid,
                 contactName = contactName,
                 isAiEnabled = true,
                 forcedAgentId = null,
@@ -530,24 +546,56 @@ class MainViewModel(application: Application) : AndroidViewModel(application) {
 
     fun setConversationForcedAgent(remoteJid: String, contactName: String, agentId: String?) {
         viewModelScope.launch(Dispatchers.IO) {
-            val existing = database.agentDao().getConversationOverride(remoteJid)
-            val updated = existing?.copy(
-                forcedAgentId = agentId,
-                contactName = if (contactName.isNotBlank()) contactName else existing.contactName,
-                updatedAt = System.currentTimeMillis()
-            ) ?: ConversationAgentOverrideEntity(
-                remoteJid = remoteJid,
-                contactName = contactName,
-                isAiEnabled = true,
-                forcedAgentId = agentId,
-                updatedAt = System.currentTimeMillis()
-            )
-            database.agentDao().insertOrUpdateConversationOverride(updated)
+            val canonicalJid = PhoneNumberUtils.toCanonicalJid(remoteJid)
+            val all = database.agentDao().getAllConversationOverridesList()
+            val existing = PhoneNumberUtils.findOverride(all, remoteJid)
+
+            if (agentId == null) {
+                if (existing != null && existing.isAiEnabled && existing.disabledAgentIdsCsv.isBlank()) {
+                    database.agentDao().deleteConversationOverride(existing.remoteJid)
+                    database.agentDao().deleteConversationOverride(canonicalJid)
+                } else if (existing != null) {
+                    val updated = existing.copy(
+                        forcedAgentId = null,
+                        contactName = if (contactName.isNotBlank()) contactName else existing.contactName,
+                        updatedAt = System.currentTimeMillis()
+                    )
+                    database.agentDao().insertOrUpdateConversationOverride(updated)
+                }
+                _syncMessage.value = "Routage automatique rétabli pour $contactName"
+            } else {
+                val updated = existing?.copy(
+                    remoteJid = canonicalJid,
+                    forcedAgentId = agentId,
+                    contactName = if (contactName.isNotBlank()) contactName else existing.contactName,
+                    updatedAt = System.currentTimeMillis()
+                ) ?: ConversationAgentOverrideEntity(
+                    remoteJid = canonicalJid,
+                    contactName = if (contactName.isNotBlank()) contactName else remoteJid,
+                    isAiEnabled = true,
+                    forcedAgentId = agentId,
+                    updatedAt = System.currentTimeMillis()
+                )
+                database.agentDao().insertOrUpdateConversationOverride(updated)
+                _syncMessage.value = "Agent assigné à $contactName"
+            }
+        }
+    }
+
+    fun resetAllConversationOverrides() {
+        viewModelScope.launch(Dispatchers.IO) {
+            val all = database.agentDao().getAllConversationOverridesList()
+            for (ov in all) {
+                database.agentDao().deleteConversationOverride(ov.remoteJid)
+            }
+            _syncMessage.value = "Tous les contacts réinitialisés en mode IA automatique"
         }
     }
 
     fun removeConversationOverride(remoteJid: String) {
         viewModelScope.launch(Dispatchers.IO) {
+            val canonicalJid = PhoneNumberUtils.toCanonicalJid(remoteJid)
+            database.agentDao().deleteConversationOverride(canonicalJid)
             database.agentDao().deleteConversationOverride(remoteJid)
         }
     }
