@@ -52,17 +52,13 @@ import androidx.compose.material.icons.filled.FilterList
 import androidx.compose.material.icons.filled.FlashOn
 import androidx.compose.material.icons.filled.Link
 import androidx.compose.material.icons.filled.Person
-import androidx.compose.material.icons.filled.Phone
 import androidx.compose.material.icons.filled.PlayArrow
 import androidx.compose.material.icons.filled.QuestionAnswer
 import androidx.compose.material.icons.filled.Refresh
 import androidx.compose.material.icons.filled.SmartToy
 import androidx.compose.material.icons.filled.Sync
 import androidx.compose.material.icons.filled.Terminal
-import androidx.compose.material.icons.filled.Tune
 import androidx.compose.material.icons.filled.Webhook
-import com.example.domain.baileys.PhoneNumberUtils
-import com.example.ui.components.ConversationOverridesDialog
 import androidx.compose.material3.AlertDialog
 import androidx.compose.material3.Button
 import androidx.compose.material3.ButtonDefaults
@@ -256,8 +252,6 @@ fun LiveChatSimulator(
     var sendAsCustomer by remember { mutableStateOf(true) }
     var showClearConfirmation by remember { mutableStateOf(false) }
     var showBindDialog by remember { mutableStateOf(false) }
-    var showOverridesDialog by remember { mutableStateOf(false) }
-    var threadAgentDropdownExpanded by remember { mutableStateOf(false) }
     var feedbackToast by remember { mutableStateOf<String?>(null) }
     var isTopExpanded by rememberSaveable { mutableStateOf(true) }
     var isInstanceFilterExpanded by rememberSaveable { mutableStateOf(false) }
@@ -946,157 +940,65 @@ fun LiveChatSimulator(
 
                 if (selectedContactJid != null) {
                     val contactJid = selectedContactJid!!
-                    val threadOverride = PhoneNumberUtils.findOverride(conversationOverrides, contactJid)
+                    val threadOverride = conversationOverrides.firstOrNull { it.remoteJid == contactJid }
                     val isThreadAiEnabled = threadOverride?.isAiEnabled ?: true
-                    val contactName = contactThreads.firstOrNull { PhoneNumberUtils.areMatching(it.remoteJid, contactJid) }?.contactName ?: contactJid
-                    val forcedAgent = agents.firstOrNull { it.id == threadOverride?.forcedAgentId }
+                    val contactName = contactThreads.firstOrNull { it.remoteJid == contactJid }?.contactName ?: contactJid
 
                     Spacer(modifier = Modifier.height(6.dp))
                     Surface(
-                        shape = RoundedCornerShape(12.dp),
+                        shape = RoundedCornerShape(10.dp),
                         color = ElegantDarkCardDark,
-                        border = BorderStroke(1.dp, if (!isThreadAiEnabled) Color(0xFFEF5350).copy(alpha = 0.7f) else ElegantDarkBorder),
+                        border = BorderStroke(1.dp, if (!isThreadAiEnabled) Color(0xFFEF5350).copy(alpha = 0.6f) else ElegantDarkBorder),
                         modifier = Modifier.fillMaxWidth()
                     ) {
-                        Column(modifier = Modifier.padding(10.dp)) {
-                            Row(
-                                modifier = Modifier.fillMaxWidth(),
-                                verticalAlignment = Alignment.CenterVertically,
-                                horizontalArrangement = Arrangement.SpaceBetween
-                            ) {
-                                Row(verticalAlignment = Alignment.CenterVertically, modifier = Modifier.weight(1f)) {
-                                    Box(
-                                        modifier = Modifier
-                                            .size(10.dp)
-                                            .clip(CircleShape)
-                                            .background(if (isThreadAiEnabled) WhatsAppGreen else Color(0xFFEF5350))
-                                    )
-                                    Spacer(modifier = Modifier.width(8.dp))
-                                    Column {
-                                        Text(
-                                            text = "Discussion : $contactName",
-                                            style = MaterialTheme.typography.bodyMedium,
-                                            color = Color(0xFF80D8FF),
-                                            fontWeight = FontWeight.Bold,
-                                            maxLines = 1,
-                                            overflow = TextOverflow.Ellipsis
-                                        )
-                                        Text(
-                                            text = if (isThreadAiEnabled) "IA Automatique : Active pour ce client" else "Mode Humain (IA Désactivée uniquement pour ce client)",
-                                            style = MaterialTheme.typography.labelSmall,
-                                            color = if (isThreadAiEnabled) WhatsAppGreen else Color(0xFFEF5350),
-                                            fontSize = 10.sp
-                                        )
-                                    }
-                                }
-
-                                Row(verticalAlignment = Alignment.CenterVertically) {
-                                    Button(
-                                        onClick = {
-                                            viewModel.setConversationAiEnabled(contactJid, contactName, !isThreadAiEnabled)
-                                        },
-                                        shape = RoundedCornerShape(8.dp),
-                                        colors = ButtonDefaults.buttonColors(
-                                            containerColor = if (isThreadAiEnabled) Color(0xFFEF5350) else WhatsAppGreen
-                                        ),
-                                        contentPadding = PaddingValues(horizontal = 8.dp, vertical = 2.dp),
-                                        modifier = Modifier.height(28.dp)
-                                    ) {
-                                        Text(
-                                            text = if (isThreadAiEnabled) "Couper IA" else "Réactiver IA",
-                                            fontSize = 11.sp,
-                                            fontWeight = FontWeight.Bold,
-                                            color = Color.White
-                                        )
-                                    }
-
-                                    Spacer(modifier = Modifier.width(6.dp))
-
-                                    TextButton(
-                                        onClick = { selectedContactJid = null },
-                                        modifier = Modifier.height(28.dp),
-                                        contentPadding = PaddingValues(horizontal = 6.dp, vertical = 0.dp)
-                                    ) {
-                                        Text("Fermer filtre", fontSize = 11.sp, color = ElegantPurpleAccent)
-                                    }
-                                }
+                        Row(
+                            modifier = Modifier.padding(horizontal = 10.dp, vertical = 6.dp),
+                            verticalAlignment = Alignment.CenterVertically,
+                            horizontalArrangement = Arrangement.SpaceBetween
+                        ) {
+                            Column(modifier = Modifier.weight(1f)) {
+                                Text(
+                                    text = "Discussion : $contactName",
+                                    style = MaterialTheme.typography.labelSmall,
+                                    color = Color(0xFF80D8FF),
+                                    fontWeight = FontWeight.Bold,
+                                    maxLines = 1,
+                                    overflow = TextOverflow.Ellipsis
+                                )
+                                Text(
+                                    text = if (isThreadAiEnabled) "IA Automatique : Active" else "Mode Humain (Reprise manuelle)",
+                                    style = MaterialTheme.typography.labelSmall,
+                                    color = if (isThreadAiEnabled) WhatsAppGreen else Color(0xFFEF5350),
+                                    fontSize = 10.sp
+                                )
                             }
 
-                            Spacer(modifier = Modifier.height(6.dp))
-
-                            // Dedicated Agent Selector for this conversation
-                            Row(
-                                modifier = Modifier.fillMaxWidth(),
-                                verticalAlignment = Alignment.CenterVertically,
-                                horizontalArrangement = Arrangement.SpaceBetween
+                            Button(
+                                onClick = {
+                                    viewModel.setConversationAiEnabled(contactJid, contactName, !isThreadAiEnabled)
+                                },
+                                shape = RoundedCornerShape(8.dp),
+                                colors = ButtonDefaults.buttonColors(
+                                    containerColor = if (isThreadAiEnabled) Color(0xFFEF5350).copy(alpha = 0.8f) else WhatsAppGreen
+                                ),
+                                contentPadding = PaddingValues(horizontal = 8.dp, vertical = 4.dp),
+                                modifier = Modifier.height(30.dp)
                             ) {
-                                Row(verticalAlignment = Alignment.CenterVertically) {
-                                    Icon(
-                                        imageVector = Icons.Default.SmartToy,
-                                        contentDescription = null,
-                                        tint = ElegantPurpleAccent,
-                                        modifier = Modifier.size(13.dp)
-                                    )
-                                    Spacer(modifier = Modifier.width(4.dp))
-                                    Text(
-                                        text = "Agent assigné :",
-                                        fontSize = 11.sp,
-                                        color = ElegantTextSecondary
-                                    )
-                                }
+                                Text(
+                                    text = if (isThreadAiEnabled) "Mode Humain" else "Activer IA",
+                                    fontSize = 11.sp,
+                                    fontWeight = FontWeight.Bold,
+                                    color = Color.White
+                                )
+                            }
 
-                                Surface(
-                                    shape = RoundedCornerShape(8.dp),
-                                    color = ElegantDarkSurface,
-                                    border = BorderStroke(1.dp, ElegantPurpleAccent.copy(alpha = 0.4f)),
-                                    modifier = Modifier.clickable { threadAgentDropdownExpanded = true }
-                                ) {
-                                    Row(
-                                        modifier = Modifier.padding(horizontal = 8.dp, vertical = 3.dp),
-                                        verticalAlignment = Alignment.CenterVertically
-                                    ) {
-                                        Text(
-                                            text = forcedAgent?.name ?: "Routage Dynamique (Tous)",
-                                            fontSize = 11.sp,
-                                            color = if (forcedAgent != null) ElegantPurpleAccent else ElegantTextPrimary,
-                                            fontWeight = FontWeight.Bold
-                                        )
-                                        Icon(
-                                            imageVector = Icons.Default.KeyboardArrowDown,
-                                            contentDescription = null,
-                                            tint = ElegantTextSecondary,
-                                            modifier = Modifier.size(14.dp)
-                                        )
-                                    }
+                            Spacer(modifier = Modifier.width(6.dp))
 
-                                    DropdownMenu(
-                                        expanded = threadAgentDropdownExpanded,
-                                        onDismissRequest = { threadAgentDropdownExpanded = false }
-                                    ) {
-                                        DropdownMenuItem(
-                                            text = { Text("🤖 Routage Dynamique (Tous les agents)", fontSize = 12.sp) },
-                                            onClick = {
-                                                viewModel.setConversationForcedAgent(contactJid, contactName, null)
-                                                threadAgentDropdownExpanded = false
-                                            }
-                                        )
-                                        agents.forEach { ag ->
-                                            DropdownMenuItem(
-                                                text = {
-                                                    Row(verticalAlignment = Alignment.CenterVertically) {
-                                                        Text(ag.name, fontWeight = FontWeight.Bold, fontSize = 12.sp)
-                                                        Spacer(modifier = Modifier.width(6.dp))
-                                                        Text("(${ag.role})", fontSize = 10.sp, color = ElegantTextSecondary)
-                                                    }
-                                                },
-                                                onClick = {
-                                                    viewModel.setConversationForcedAgent(contactJid, contactName, ag.id)
-                                                    threadAgentDropdownExpanded = false
-                                                }
-                                            )
-                                        }
-                                    }
-                                }
+                            TextButton(
+                                onClick = { selectedContactJid = null },
+                                modifier = Modifier.height(30.dp)
+                            ) {
+                                Text("Voir tout", fontSize = 11.sp, color = ElegantPurpleAccent)
                             }
                         }
                     }
@@ -1110,48 +1012,6 @@ fun LiveChatSimulator(
 
         // Content: SubView 0 = Chat Messages, SubView 1 = Contact Threads List
         if (subViewMode == 1) {
-            // Header bar for threads with rules management button
-            Row(
-                modifier = Modifier
-                    .fillMaxWidth()
-                    .padding(horizontal = 4.dp, vertical = 2.dp),
-                verticalAlignment = Alignment.CenterVertically,
-                horizontalArrangement = Arrangement.SpaceBetween
-            ) {
-                Text(
-                    text = "Fils de discussion actifs (${contactThreads.size})",
-                    style = MaterialTheme.typography.labelSmall,
-                    color = ElegantTextSecondary,
-                    fontWeight = FontWeight.Bold
-                )
-                Surface(
-                    shape = RoundedCornerShape(8.dp),
-                    color = ElegantPurpleAccent.copy(alpha = 0.15f),
-                    border = BorderStroke(1.dp, ElegantPurpleAccent.copy(alpha = 0.5f)),
-                    modifier = Modifier.clickable { showOverridesDialog = true }
-                ) {
-                    Row(
-                        modifier = Modifier.padding(horizontal = 8.dp, vertical = 4.dp),
-                        verticalAlignment = Alignment.CenterVertically
-                    ) {
-                        Icon(
-                            imageVector = Icons.Default.Tune,
-                            contentDescription = null,
-                            tint = ElegantPurpleAccent,
-                            modifier = Modifier.size(13.dp)
-                        )
-                        Spacer(modifier = Modifier.width(4.dp))
-                        Text(
-                            text = "Règles par numéro (${conversationOverrides.size})",
-                            fontSize = 10.sp,
-                            color = ElegantPurpleAccent,
-                            fontWeight = FontWeight.Bold
-                        )
-                    }
-                }
-            }
-            Spacer(modifier = Modifier.height(4.dp))
-
             if (contactThreads.isEmpty()) {
                 Box(
                     modifier = Modifier
@@ -1193,23 +1053,14 @@ fun LiveChatSimulator(
                     verticalArrangement = Arrangement.spacedBy(8.dp)
                 ) {
                     items(contactThreads, key = { it.remoteJid }) { thread ->
-                        val threadOverride = PhoneNumberUtils.findOverride(conversationOverrides, thread.remoteJid)
-                        val isThreadAiEnabled = threadOverride?.isAiEnabled ?: true
-                        val forcedAgent = agents.firstOrNull { it.id == threadOverride?.forcedAgentId }
-
                         Surface(
                             shape = RoundedCornerShape(16.dp),
                             color = ElegantDarkSurface,
-                            border = BorderStroke(
-                                1.dp,
-                                if (!isThreadAiEnabled) Color(0xFFEF5350).copy(alpha = 0.5f) else ElegantDarkBorder
-                            ),
+                            border = BorderStroke(1.dp, ElegantDarkBorder),
                             modifier = Modifier
                                 .fillMaxWidth()
                                 .clickable {
                                     selectedContactJid = thread.remoteJid
-                                    customerPhone = thread.remoteJid.substringBefore("@")
-                                    customerName = thread.contactName
                                     subViewMode = 0
                                 }
                         ) {
@@ -1221,15 +1072,12 @@ fun LiveChatSimulator(
                                     modifier = Modifier
                                         .size(42.dp)
                                         .clip(CircleShape)
-                                        .background(
-                                            if (isThreadAiEnabled) ElegantPurpleAccent.copy(alpha = 0.2f)
-                                            else Color(0xFFEF5350).copy(alpha = 0.2f)
-                                        ),
+                                        .background(ElegantPurpleAccent.copy(alpha = 0.2f)),
                                     contentAlignment = Alignment.Center
                                 ) {
                                     Text(
                                         text = thread.contactName.take(2).uppercase(),
-                                        color = if (isThreadAiEnabled) ElegantPurpleAccent else Color(0xFFEF5350),
+                                        color = ElegantPurpleAccent,
                                         fontWeight = FontWeight.Bold,
                                         fontSize = 14.sp
                                     )
@@ -1264,40 +1112,21 @@ fun LiveChatSimulator(
                                         maxLines = 1,
                                         overflow = TextOverflow.Ellipsis
                                     )
-                                    if (forcedAgent != null) {
-                                        Spacer(modifier = Modifier.height(2.dp))
-                                        Text(
-                                            text = "🤖 Agent assigné : ${forcedAgent.name}",
-                                            style = MaterialTheme.typography.labelSmall,
-                                            color = ElegantPurpleAccent,
-                                            fontSize = 10.sp,
-                                            fontWeight = FontWeight.Bold
-                                        )
-                                    }
                                 }
                                 Spacer(modifier = Modifier.width(8.dp))
+                                val threadOverride = conversationOverrides.firstOrNull { it.remoteJid == thread.remoteJid }
+                                val isThreadAiEnabled = threadOverride?.isAiEnabled ?: true
 
                                 Column(horizontalAlignment = Alignment.End) {
                                     Surface(
-                                        shape = RoundedCornerShape(8.dp),
-                                        color = if (isThreadAiEnabled) WhatsAppGreen.copy(alpha = 0.2f) else Color(0xFFEF5350).copy(alpha = 0.2f),
-                                        border = BorderStroke(
-                                            1.dp,
-                                            if (isThreadAiEnabled) WhatsAppGreen.copy(alpha = 0.5f) else Color(0xFFEF5350).copy(alpha = 0.5f)
-                                        ),
-                                        modifier = Modifier.clickable {
-                                            viewModel.setConversationAiEnabled(
-                                                thread.remoteJid,
-                                                thread.contactName,
-                                                !isThreadAiEnabled
-                                            )
-                                        }
+                                        shape = CircleShape,
+                                        color = if (isThreadAiEnabled) WhatsAppGreen.copy(alpha = 0.2f) else Color(0xFFEF5350).copy(alpha = 0.2f)
                                     ) {
                                         Text(
                                             text = if (isThreadAiEnabled) "IA ON" else "Manuel",
-                                            modifier = Modifier.padding(horizontal = 7.dp, vertical = 3.dp),
+                                            modifier = Modifier.padding(horizontal = 6.dp, vertical = 2.dp),
                                             style = MaterialTheme.typography.labelSmall,
-                                            fontSize = 10.sp,
+                                            fontSize = 9.sp,
                                             fontWeight = FontWeight.Bold,
                                             color = if (isThreadAiEnabled) WhatsAppGreen else Color(0xFFEF5350)
                                         )
@@ -1729,74 +1558,6 @@ fun LiveChatSimulator(
 
                         Spacer(modifier = Modifier.height(4.dp))
 
-                        if (sendAsCustomer) {
-                            Row(
-                                modifier = Modifier
-                                    .fillMaxWidth()
-                                    .background(Color(0xFF00B0FF).copy(alpha = 0.08f), RoundedCornerShape(10.dp))
-                                    .padding(horizontal = 8.dp, vertical = 4.dp),
-                                verticalAlignment = Alignment.CenterVertically,
-                                horizontalArrangement = Arrangement.SpaceBetween
-                            ) {
-                                Row(verticalAlignment = Alignment.CenterVertically, modifier = Modifier.weight(1f)) {
-                                    Icon(
-                                        imageVector = Icons.Default.Phone,
-                                        contentDescription = null,
-                                        tint = Color(0xFF00B0FF),
-                                        modifier = Modifier.size(13.dp)
-                                    )
-                                    Spacer(modifier = Modifier.width(4.dp))
-                                    Text(
-                                        text = "N° Client :",
-                                        fontSize = 10.sp,
-                                        color = ElegantTextSecondary,
-                                        fontWeight = FontWeight.Bold
-                                    )
-                                    Spacer(modifier = Modifier.width(6.dp))
-                                    OutlinedTextField(
-                                        value = customerPhone,
-                                        onValueChange = {
-                                            customerPhone = it
-                                            selectedContactJid = null
-                                        },
-                                        singleLine = true,
-                                        shape = RoundedCornerShape(8.dp),
-                                        textStyle = MaterialTheme.typography.labelSmall.copy(
-                                            fontSize = 11.sp,
-                                            fontWeight = FontWeight.Bold,
-                                            color = Color(0xFF00B0FF)
-                                        ),
-                                        modifier = Modifier
-                                            .height(36.dp)
-                                            .weight(1f),
-                                        placeholder = { Text("+33 6...", fontSize = 10.sp, color = ElegantTextSecondary) },
-                                        contentPadding = PaddingValues(horizontal = 6.dp, vertical = 0.dp)
-                                    )
-                                }
-
-                                val currentTargetOverride = PhoneNumberUtils.findOverride(
-                                    conversationOverrides,
-                                    PhoneNumberUtils.toCanonicalJid(customerPhone)
-                                )
-                                val isCurrentTargetAiOn = currentTargetOverride?.isAiEnabled ?: true
-
-                                Spacer(modifier = Modifier.width(6.dp))
-                                Surface(
-                                    shape = RoundedCornerShape(6.dp),
-                                    color = if (isCurrentTargetAiOn) WhatsAppGreen.copy(alpha = 0.15f) else Color(0xFFEF5350).copy(alpha = 0.15f)
-                                ) {
-                                    Text(
-                                        text = if (isCurrentTargetAiOn) "IA Active" else "Mode Humain",
-                                        fontSize = 9.sp,
-                                        fontWeight = FontWeight.Bold,
-                                        color = if (isCurrentTargetAiOn) WhatsAppGreen else Color(0xFFEF5350),
-                                        modifier = Modifier.padding(horizontal = 5.dp, vertical = 2.dp)
-                                    )
-                                }
-                            }
-                            Spacer(modifier = Modifier.height(4.dp))
-                        }
-
                         Row(
                             modifier = Modifier.fillMaxWidth(),
                             verticalAlignment = Alignment.CenterVertically
@@ -1824,17 +1585,16 @@ fun LiveChatSimulator(
                                         val textToSend = inputMessageText
                                         inputMessageText = ""
                                         val targetInstId = currentInstance?.id ?: instances.firstOrNull()?.id ?: "inst_paris_01"
+                                        val contactJid = selectedContactJid ?: "$customerPhone@s.whatsapp.net"
 
                                         if (sendAsCustomer) {
-                                            val targetJid = PhoneNumberUtils.toCanonicalJid(customerPhone)
                                             viewModel.simulateCustomerMessage(
                                                 instanceId = targetInstId,
-                                                senderJid = targetJid,
-                                                senderName = customerName.ifBlank { "Client ${customerPhone.trim()}" },
+                                                senderJid = contactJid,
+                                                senderName = customerName,
                                                 text = textToSend
                                             )
                                         } else {
-                                            val contactJid = selectedContactJid ?: PhoneNumberUtils.toCanonicalJid(customerPhone)
                                             viewModel.sendManualReply(
                                                 instanceId = targetInstId,
                                                 remoteJid = contactJid,
@@ -1898,15 +1658,6 @@ fun LiveChatSimulator(
                 viewModel.bindAgentAndModelToInstance(currentInstance.id, agentId, modelId)
                 showBindDialog = false
             }
-        )
-    }
-
-    if (showOverridesDialog) {
-        ConversationOverridesDialog(
-            viewModel = viewModel,
-            overrides = conversationOverrides,
-            agents = agents,
-            onDismiss = { showOverridesDialog = false }
         )
     }
 

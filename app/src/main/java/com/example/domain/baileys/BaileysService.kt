@@ -108,18 +108,23 @@ class BaileysService(private val database: AppDatabase) {
         _eventsFlow.emit(BaileysEvent(instanceId, "messages.upsert", "Incoming message from $senderName: $messageText"))
 
         // 1.5. Check conversation-level AI override (Toggle / Agent specific per conversation)
-        val allOverrides = agentDao.getAllConversationOverridesList()
-        val conversationOverride = PhoneNumberUtils.findOverride(allOverrides, senderJid)
+        val cleanJid = senderJid.trim()
+        val rawNumber = cleanJid.substringBefore("@").replace("+", "").replace(" ", "").trim()
+        val withPlus = "+$rawNumber"
+        val withWhatsappSuffix = if (cleanJid.contains("@")) cleanJid else "$rawNumber@s.whatsapp.net"
+        val conversationOverride = agentDao.getConversationOverride(cleanJid)
+            ?: agentDao.getConversationOverride(withWhatsappSuffix)
+            ?: agentDao.getConversationOverride(rawNumber)
+            ?: agentDao.getConversationOverride(withPlus)
+            ?: agentDao.getConversationOverride(senderJid)
+            ?: agentDao.getAllConversationOverridesList().firstOrNull { override ->
+                val overrideRaw = override.remoteJid.substringBefore("@").replace("+", "").replace(" ", "").trim()
+                overrideRaw == rawNumber || override.remoteJid.equals(cleanJid, ignoreCase = true) || override.remoteJid.equals(senderJid, ignoreCase = true)
+            }
 
         if (conversationOverride != null && !conversationOverride.isAiEnabled) {
             // AI is explicitly disabled by user for this contact/thread (Human takeover mode)
-            _eventsFlow.emit(
-                BaileysEvent(
-                    instanceId,
-                    "messages.skip",
-                    "IA désactivée pour le contact spécifique $senderJid (Mode Humain - Aucun message automatique envoyé)"
-                )
-            )
+            _eventsFlow.emit(BaileysEvent(instanceId, "messages.skip", "IA désactivée pour la discussion $senderJid (Mode Humain - Aucun message envoyé)"))
             return null
         }
 
