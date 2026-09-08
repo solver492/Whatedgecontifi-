@@ -118,6 +118,9 @@ import com.example.data.local.entity.AppSettingsEntity
 import com.example.data.local.entity.CategoryEntity
 import com.example.domain.intelligence.ProductIntelligenceEngine
 import com.example.ui.components.MediaCarousel
+import com.example.ui.components.ProductPromptButton
+import com.example.ui.components.ProductPromptEnhancementDialog
+import com.example.ui.components.PromptTargetMedia
 import com.example.data.local.entity.ProductEntity
 import com.example.data.local.entity.TelegramAccountEntity
 import com.example.data.local.entity.TelegramChannelEntity
@@ -1680,6 +1683,7 @@ fun CreateProductFromTelegramDialog(
     var isProcessingMedia by remember { mutableStateOf(false) }
     var showAddUrlInput by remember { mutableStateOf(false) }
     var manualUrlText by remember { mutableStateOf("") }
+    var showPromptDialog by remember { mutableStateOf(false) }
 
     // Sélecteur Android officiel : sélectionne photos et vidéos de la galerie
     val mediaPickerLauncher = rememberLauncherForActivityResult(
@@ -1953,10 +1957,11 @@ fun CreateProductFromTelegramDialog(
                             Spacer(modifier = Modifier.height(8.dp))
                         }
 
-                        // Boutons d'action pour les médias
+                        // Boutons d'action pour les médias (Galerie, Nouveau Bouton "P" Studio WhatsApp, et URL)
                         Row(
                             modifier = Modifier.fillMaxWidth(),
-                            horizontalArrangement = Arrangement.spacedBy(8.dp)
+                            horizontalArrangement = Arrangement.spacedBy(8.dp),
+                            verticalAlignment = Alignment.CenterVertically
                         ) {
                             Button(
                                 onClick = {
@@ -1973,6 +1978,17 @@ fun CreateProductFromTelegramDialog(
                                 Spacer(modifier = Modifier.width(6.dp))
                                 Text("Ajouter Photos/Vidéos", color = Color.White, fontSize = 11.sp, fontWeight = FontWeight.SemiBold)
                             }
+
+                            // Bouton "P" personnalisé
+                            ProductPromptButton(
+                                onClick = {
+                                    if (mediaList.isEmpty()) {
+                                        Toast.makeText(context, "Ajoutez d'abord une photo pour appliquer les commandes de retouche IA", Toast.LENGTH_SHORT).show()
+                                    } else {
+                                        showPromptDialog = true
+                                    }
+                                }
+                            )
 
                             OutlinedButton(
                                 onClick = { showAddUrlInput = !showAddUrlInput },
@@ -2180,4 +2196,21 @@ fun CreateProductFromTelegramDialog(
         confirmButton = {},
         containerColor = ElegantDarkSurface
     )
+
+    if (showPromptDialog) {
+        ProductPromptEnhancementDialog(
+            mediaList = mediaList.map { PromptTargetMedia(id = it.id, urlOrPath = it.urlOrPath, isVideo = it.isVideo) },
+            primaryMediaId = mediaList.firstOrNull()?.id,
+            productTitle = title,
+            initialProductDescription = message.text,
+            onDismiss = { showPromptDialog = false },
+            onMediaReplaced = { targetId, newPath ->
+                val index = mediaList.indexOfFirst { it.id == targetId }
+                if (index != -1) {
+                    val oldItem = mediaList[index]
+                    mediaList[index] = oldItem.copy(urlOrPath = newPath)
+                }
+            }
+        )
+    }
 }

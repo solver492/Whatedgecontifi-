@@ -42,6 +42,9 @@ import androidx.compose.material3.OutlinedButton
 import androidx.compose.foundation.verticalScroll
 import com.example.data.local.entity.ParsedMediaItem
 import com.example.ui.components.MediaCarousel
+import com.example.ui.components.ProductPromptButton
+import com.example.ui.components.ProductPromptEnhancementDialog
+import com.example.ui.components.PromptTargetMedia
 import androidx.compose.ui.layout.ContentScale
 import androidx.compose.ui.text.style.TextOverflow
 import coil.compose.AsyncImage
@@ -1051,6 +1054,7 @@ private fun ProductEditDialog(
     var isProcessingMedia by remember { mutableStateOf(false) }
     var showAddUrlInput by remember { mutableStateOf(false) }
     var manualUrlText by remember { mutableStateOf("") }
+    var showPromptDialog by remember { mutableStateOf(false) }
 
     androidx.compose.runtime.LaunchedEffect(existingMediaEntities) {
         if (!isMediaInitialized) {
@@ -1408,10 +1412,11 @@ private fun ProductEditDialog(
                             Spacer(modifier = Modifier.height(8.dp))
                         }
 
-                        // Boutons d'ajout : Galerie (+ Photos/Vidéos) et URL
+                        // Boutons d'ajout : Galerie (+ Photos/Vidéos), Nouveau Bouton "P" (Prompt & Retouche Studio IA WhatsApp) et URL
                         Row(
                             modifier = Modifier.fillMaxWidth(),
-                            horizontalArrangement = Arrangement.spacedBy(8.dp)
+                            horizontalArrangement = Arrangement.spacedBy(8.dp),
+                            verticalAlignment = Alignment.CenterVertically
                         ) {
                             Button(
                                 onClick = {
@@ -1428,6 +1433,17 @@ private fun ProductEditDialog(
                                 Spacer(modifier = Modifier.width(6.dp))
                                 Text("Ajouter Médias (Galerie)", color = Color.White, fontSize = 11.sp, fontWeight = FontWeight.SemiBold)
                             }
+
+                            // Bouton "P" personnalisé (Injections de commandes + WhatsApp Automation + Remplacement)
+                            ProductPromptButton(
+                                onClick = {
+                                    if (mediaList.isEmpty()) {
+                                        Toast.makeText(context, "Ajoutez d'abord une photo pour appliquer les commandes de retouche IA", Toast.LENGTH_SHORT).show()
+                                    } else {
+                                        showPromptDialog = true
+                                    }
+                                }
+                            )
 
                             OutlinedButton(
                                 onClick = { showAddUrlInput = !showAddUrlInput },
@@ -1590,4 +1606,25 @@ private fun ProductEditDialog(
         },
         confirmButton = {}
     )
+
+    if (showPromptDialog) {
+        ProductPromptEnhancementDialog(
+            mediaList = mediaList.map { PromptTargetMedia(id = it.id, urlOrPath = it.urlOrPath, isVideo = it.isVideo) },
+            primaryMediaId = primaryMediaId,
+            productTitle = title,
+            initialProductDescription = description,
+            onDismiss = { showPromptDialog = false },
+            onMediaReplaced = { targetId, newPath ->
+                val index = mediaList.indexOfFirst { it.id == targetId }
+                if (index != -1) {
+                    val oldItem = mediaList[index]
+                    val updated = oldItem.copy(urlOrPath = newPath)
+                    mediaList[index] = updated
+                    if (primaryMediaId == targetId || primaryMediaId == null) {
+                        primaryMediaId = updated.id
+                    }
+                }
+            }
+        )
+    }
 }
