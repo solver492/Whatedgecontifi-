@@ -18,6 +18,8 @@ object TelegramBridgeScript {
 
     const val LAUNCH_COMMAND = FAST_START_COMMAND
 
+    const val RESET_SESSION_COMMAND = "killall python 2>/dev/null ; rm -f ~/tg-bridge/telethon_session.session* && cd ~/tg-bridge && python telegram-bridge.py"
+
     val PYTHON_BRIDGE_SCRIPT = """# =========================================================================
 # AI Edge - Telegram Telethon MTProto Real Bridge for Termux / Python Server
 # Port d'écoute HTTP : 8088 | Relais vers Android : 8081 / 8080 / 8082
@@ -165,27 +167,171 @@ async def handle_send_code(request):
         data = await request.json()
         api_id = data.get("api_id")
         api_hash = data.get("api_hash")
-        phone = data.get("phone")
+        raw_phone = str(data.get("phone", "")).strip().replace(" ", "").replace("-", "")
+        force_sms = bool(data.get("force_sms", False))
         
-        if not api_id or not api_hash or not phone:
+        if not api_id or not api_hash or not raw_phone:
             return web.json_response({"success": False, "error": "api_id, api_hash et phone requis"}, status=400)
             
+        phone = raw_phone
+        if phone.startswith("00"):
+            phone = "+" + phone[2:]
+        elif not phone.startswith("+") and not phone.startswith("0"):
+            phone = "+" + phone
+            
+        print(f"\n=======================================================", flush=True)
+        print(f"📩 [TELEGRAM] Demande de code pour : {phone}", flush=True)
+        print(f"🔑 API ID: {api_id} | Force SMS: {force_sms}", flush=True)
+        print(f"=======================================================", flush=True)
+        
         tg = await get_client(api_id, api_hash)
-        result = await tg.send_code_request(phone)
+        
+        # 1. Vérifier si le compte est DÉJÀ connecté !
+        if await tg.is_user_authorized():
+            me = await tg.get_me()
+            first_n = me.first_name or "Utilisateur"
+            print(f"🎉 Compte DÉJÀ connecté : {first_n} (@{me.username}) ID:{me.id}", flush=True)
+            await log_to_android("SUCCESS", f"Compte déjà connecté sur Telegram : {first_n}")
+            return web.json_response({
+                "success": True,
+                "already_authorized": True,
+                "phone": phone,
+                "user": {
+                    "id": me.id,
+                    "first_name": first_n,
+                    "last_name": me.last_name or "",
+                    "username": me.username or "",
+                    "phone": me.phone or phone
+                },
+                "message": f"Session déjà active et connectée ({first_n}) !"
+            })
+
+        # 2. Envoi officiel de la demande de code
+        result = await tg.send_code_request(phone, force_sms=force_sms)
         phone_code_hash_cache[phone] = result.phone_code_hash
         app_state["phone"] = phone
         app_state["api_id"] = api_id
         app_state["api_hash"] = api_hash
         
+        type_obj = getattr(result, 'type', None)
+        type_name = type(type_obj).__name__ if type_obj else "SentCodeTypeApp"
+        timeout = getattr(result, 'timeout', 60) or 60
+        
+        # Identification claire de la destination pour l'utilisateur
+        if "App" in type_name:
+            delivery = "APP"
+            user_msg = "Code envoyé DANS votre application TELEGRAM (discussion 'Telegram' avec coche bleue). Ce n'est PAS un SMS !"
+        elif "Sms" in type_name:
+            delivery = "SMS"
+            user_msg = f"Code envoyé par SMS sur votre mobile ({phone})."
+        elif "Call" in type_name:
+            delivery = "CALL"
+            user_msg = f"Telegram va vous dicter le code par appel téléphonique au {phone}."
+        elif "Flash" in type_name:
+            delivery = "FLASH_CALL"
+            user_msg = f"Telegram effectue un appel flash au {phone}."
+        elif "Email" in type_name:
+            delivery = "EMAIL"
+            user_msg = "Code envoyé sur votre adresse email de récupération Telegram."
+        else:
+            delivery = "APP"
+            user_msg = f"Code généré par Telegram ({type_name}). Consultez votre application Telegram."
+
+        print(f"✅ Code généré avec succès par Telegram !", flush=True)
+        print(f"👉 DESTINATION : {type_name} ({delivery})", flush=True)
+        print(f"👉 MESSAGE : {user_msg}", flush=True)
+        print(f"⏳ Délai d'attente : {timeout} secondes\n", flush=True)
+        
+        await log_to_android("AUTH", f"Code envoyé via {type_name} ({delivery}). {user_msg}")
+        
         return web.json_response({
             "success": True,
             "phone": phone,
             "phone_code_hash": result.phone_code_hash,
-            "message": "Code de vérification envoyé sur votre compte Telegram officiel"
+            "delivery_type": delivery,
+            "delivery_raw": type_name,
+            "timeout": timeout,
+            "message": user_msg
         })
     except Exception as e:
-        # Erreur réelle renvoyée par Telegram / Telethon (ex: PhoneNumberInvalidError, ApiIdInvalidError)
-        return web.json_response({"success": False, "error": str(e)}, status=400)
+        err_msg = str(e)
+        print(f"❌ Erreur send_code_request: {err_msg}", flush=True)
+        await log_to_android("ERROR", f"Échec demande code Telegram : {err_msg}")
+        return web.json_response({"success": False, "error": err_msg}, status=400)
+
+async def handle_resend_code(request):
+    try:
+        data = await request.json()
+        phone = str(data.get("phone") or app_state.get("phone") or "").strip().replace(" ", "").replace("-", "")
+        phone_code_hash = data.get("phone_code_hash") or phone_code_hash_cache.get(phone, "")
+        
+        if not phone:
+            return web.json_response({"success": False, "error": "Numéro de téléphone requis"}, status=400)
+            
+        if not app_state.get("api_id") or not app_state.get("api_hash"):
+            return web.json_response({"success": False, "error": "Identifiants API non initialisés"}, status=400)
+            
+        tg = await get_client(app_state["api_id"], app_state["api_hash"])
+        print(f"\n🔄 [TELEGRAM] Renvoi de code demandé pour {phone}...", flush=True)
+        
+        try:
+            if phone_code_hash:
+                result = await tg.resend_code(phone, phone_code_hash)
+            else:
+                result = await tg.send_code_request(phone, force_sms=True)
+        except Exception as e_resend:
+            print(f"⚠️ Resend direct a échoué ({e_resend}), essai force_sms=True...", flush=True)
+            result = await tg.send_code_request(phone, force_sms=True)
+            
+        phone_code_hash_cache[phone] = result.phone_code_hash
+        type_obj = getattr(result, 'type', None)
+        type_name = type(type_obj).__name__ if type_obj else "SentCodeTypeSms"
+        timeout = getattr(result, 'timeout', 60) or 60
+        
+        print(f"✅ Nouveau code renvoyé ! Mode: {type_name} | Timeout: {timeout}s\n", flush=True)
+        await log_to_android("AUTH", f"Nouveau code renvoyé ({type_name}).")
+        
+        return web.json_response({
+            "success": True,
+            "phone": phone,
+            "phone_code_hash": result.phone_code_hash,
+            "delivery_type": type_name,
+            "timeout": timeout,
+            "message": "Nouveau code renvoyé par Telegram (priorité SMS)."
+        })
+    except Exception as e:
+        err_msg = str(e)
+        print(f"❌ Erreur resend_code: {err_msg}", flush=True)
+        await log_to_android("ERROR", f"Échec renvoi code : {err_msg}")
+        return web.json_response({"success": False, "error": err_msg}, status=400)
+
+async def handle_reset_session(request):
+    try:
+        global client, phone_code_hash_cache, app_state, listener_attached
+        if client:
+            try:
+                await client.disconnect()
+            except Exception:
+                pass
+            client = None
+        listener_attached = False
+        phone_code_hash_cache.clear()
+        app_state = {"api_id": None, "api_hash": None, "phone": None}
+        
+        deleted = 0
+        for f in os.listdir(os.getcwd()):
+            if f.startswith(SESSION_NAME):
+                try:
+                    os.remove(os.path.join(os.getcwd(), f))
+                    deleted += 1
+                except Exception:
+                    pass
+                    
+        print(f"🧹 [RESET] Session purgée avec succès ({deleted} fichier(s) supprimé(s)).", flush=True)
+        await log_to_android("AUTH", "Session réinitialisée. Prêt pour une nouvelle connexion.")
+        return web.json_response({"success": True, "message": "Session réinitialisée avec succès."})
+    except Exception as e:
+        return web.json_response({"success": False, "error": str(e)}, status=500)
 
 async def handle_sign_in(request):
     try:
@@ -388,11 +534,27 @@ async def handle_get_channel_messages(request):
 
 async def handle_disconnect(request):
     try:
-        global client
+        global client, listener_attached
         if client and client.is_connected():
-            await client.log_out()
-            await client.disconnect()
+            try:
+                await client.log_out()
+            except Exception:
+                pass
+            try:
+                await client.disconnect()
+            except Exception:
+                pass
             client = None
+        listener_attached = False
+        
+        # Nettoyage des fichiers de session
+        for f in os.listdir(os.getcwd()):
+            if f.startswith(SESSION_NAME):
+                try:
+                    os.remove(os.path.join(os.getcwd(), f))
+                except Exception:
+                    pass
+                    
         return web.json_response({"success": True, "message": "Déconnecté de Telegram avec succès"})
     except Exception as e:
         return web.json_response({"success": False, "error": str(e)}, status=500)
@@ -407,6 +569,12 @@ def init_app():
     
     app.router.add_post('/telegram/auth/start', handle_send_code)
     app.router.add_post('/auth/send-code', handle_send_code)
+    
+    app.router.add_post('/telegram/auth/resend', handle_resend_code)
+    app.router.add_post('/auth/resend-code', handle_resend_code)
+    
+    app.router.add_post('/telegram/auth/reset', handle_reset_session)
+    app.router.add_post('/auth/reset', handle_reset_session)
     
     app.router.add_post('/telegram/auth/confirm', handle_sign_in)
     app.router.add_post('/auth/sign-in', handle_sign_in)

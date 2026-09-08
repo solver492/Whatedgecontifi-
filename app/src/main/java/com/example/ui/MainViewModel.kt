@@ -765,6 +765,31 @@ class MainViewModel(application: Application) : AndroidViewModel(application) {
         }
     }
 
+    fun resendTelegramCode(
+        phone: String,
+        onResult: (TelegramAuthResult) -> Unit
+    ) {
+        viewModelScope.launch {
+            _isTelegramLoading.value = true
+            val result = telegramService.resendVerificationCode(phone)
+            _isTelegramLoading.value = false
+            onResult(result)
+            refreshTelegramStatus()
+        }
+    }
+
+    fun resetTelethonSession(
+        onResult: (Boolean) -> Unit
+    ) {
+        viewModelScope.launch {
+            _isTelegramLoading.value = true
+            val success = telegramService.resetTelethonSession()
+            _isTelegramLoading.value = false
+            onResult(success)
+            refreshTelegramStatus()
+        }
+    }
+
     fun verifyTelegramCode(
         phone: String,
         code: String,

@@ -3,6 +3,8 @@ package com.example.ui.screens
 import android.content.ClipData
 import android.content.ClipboardManager
 import android.content.Context
+import android.content.Intent
+import android.net.Uri
 import android.widget.Toast
 import androidx.compose.foundation.BorderStroke
 import androidx.compose.foundation.background
@@ -36,11 +38,14 @@ import androidx.compose.material.icons.filled.ContentCopy
 import androidx.compose.material.icons.filled.Delete
 import androidx.compose.material.icons.filled.HelpOutline
 import androidx.compose.material.icons.filled.Image
+import androidx.compose.material.icons.filled.Info
+import androidx.compose.material.icons.filled.Launch
 import androidx.compose.material.icons.filled.Lock
 import androidx.compose.material.icons.filled.Phone
 import androidx.compose.material.icons.filled.Refresh
 import androidx.compose.material.icons.filled.Send
 import androidx.compose.material.icons.filled.ShoppingBag
+import androidx.compose.material.icons.filled.Sms
 import androidx.compose.material.icons.filled.Sync
 import androidx.compose.material.icons.filled.Terminal
 import androidx.compose.material.icons.filled.Visibility
@@ -184,6 +189,10 @@ fun TelegramScreen(
     var password2FAInput by remember { mutableStateOf("") }
     var step by remember { mutableStateOf(1) } // 1: Info/Phone, 2: Code verification
     var requires2FA by remember { mutableStateOf(false) }
+    var codeDeliveryType by remember { mutableStateOf("APP") }
+    var codeTimeoutSeconds by remember { mutableStateOf(60) }
+    var isResendingCode by remember { mutableStateOf(false) }
+    var isResettingSession by remember { mutableStateOf(false) }
 
     val activeAccount = accounts.firstOrNull { it.status == "CONNECTED" }
 
@@ -492,14 +501,36 @@ fun TelegramScreen(
                                     singleLine = true
                                 )
 
+                                if (phoneInput.isNotBlank() && phoneInput.trim().startsWith("0") && !phoneInput.trim().startsWith("00")) {
+                                    Spacer(modifier = Modifier.height(6.dp))
+                                    Text(
+                                        text = "⚠️ Remplacez le '0' par l'indicatif international (ex: +33 pour la France, +221 Sénégal, +225 RCI)",
+                                        color = ElegantOrangeNotice,
+                                        fontSize = 11.sp
+                                    )
+                                }
+
                                 Spacer(modifier = Modifier.height(14.dp))
 
                                 Button(
                                     onClick = {
-                                        viewModel.sendTelegramCode(apiIdInput, apiHashInput, phoneInput) { result ->
+                                        val cleanPhone = phoneInput.trim().replace(" ", "").replace("-", "")
+                                        val normalizedPhone = if (cleanPhone.startsWith("00")) {
+                                            "+" + cleanPhone.substring(2)
+                                        } else if (!cleanPhone.startsWith("+")) {
+                                            "+$cleanPhone"
+                                        } else cleanPhone
+
+                                        viewModel.sendTelegramCode(apiIdInput.trim(), apiHashInput.trim(), normalizedPhone) { result ->
                                             toastMessage = result.message
                                             if (result.success) {
-                                                step = 2
+                                                if (result.alreadyAuthorized) {
+                                                    step = 1
+                                                } else {
+                                                    step = 2
+                                                    codeDeliveryType = result.deliveryType ?: "APP"
+                                                    codeTimeoutSeconds = result.timeout ?: 60
+                                                }
                                             }
                                         }
                                     },
@@ -514,13 +545,93 @@ fun TelegramScreen(
                                     }
                                     Text("Envoyer le Code de Vérification", fontWeight = FontWeight.Bold)
                                 }
+
+                                Spacer(modifier = Modifier.height(8.dp))
+                                TextButton(
+                                    onClick = {
+                                        isResettingSession = true
+                                        viewModel.resetTelethonSession { success ->
+                                            isResettingSession = false
+                                            toastMessage = if (success) "Session Termux réinitialisée !" else "Erreur de réinitialisation."
+                                        }
+                                    },
+                                    enabled = !isLoading && !isResettingSession,
+                                    modifier = Modifier.fillMaxWidth()
+                                ) {
+                                    Icon(Icons.Default.Refresh, contentDescription = null, tint = ElegantTextSecondary, modifier = Modifier.size(14.dp))
+                                    Spacer(modifier = Modifier.width(4.dp))
+                                    Text("Purger la session SQLite dans Termux", color = ElegantTextSecondary, fontSize = 11.sp)
+                                }
                             } else {
-                                // Step 2: Code verification
+                                // Step 2: Code verification & Guidance
+                                Card(
+                                    shape = RoundedCornerShape(12.dp),
+                                    colors = CardDefaults.cardColors(
+                                        containerColor = if (codeDeliveryType == "SMS") TelegramBlue.copy(alpha = 0.12f) else Color(0xFF132A45)
+                                    ),
+                                    border = BorderStroke(1.dp, if (codeDeliveryType == "SMS") TelegramBlue else TelegramBlueLight.copy(alpha = 0.4f)),
+                                    modifier = Modifier.fillMaxWidth().padding(bottom = 12.dp)
+                                ) {
+                                    Column(modifier = Modifier.padding(12.dp), verticalArrangement = Arrangement.spacedBy(6.dp)) {
+                                        Row(verticalAlignment = Alignment.CenterVertically) {
+                                            Icon(
+                                                if (codeDeliveryType == "SMS") Icons.Default.Sms else Icons.Default.Info,
+                                                contentDescription = null,
+                                                tint = if (codeDeliveryType == "SMS") ElegantGreenActive else TelegramBlueLight,
+                                                modifier = Modifier.size(20.dp)
+                                            )
+                                            Spacer(modifier = Modifier.width(8.dp))
+                                            Text(
+                                                text = if (codeDeliveryType == "SMS") "Code envoyé par SMS" else "Où trouver votre code ?",
+                                                fontWeight = FontWeight.Bold,
+                                                fontSize = 13.sp,
+                                                color = ElegantTextPrimary
+                                            )
+                                        }
+
+                                        if (codeDeliveryType != "SMS") {
+                                            Text(
+                                                text = "Telegram envoie le code de sécurité DIRECTEMENT dans votre application Telegram officielle (discussion officielle 'Telegram' avec coche bleue).\n\n⚠️ Si vous avez déjà Telegram sur votre téléphone, vous ne recevrez PAS de SMS mais un message direct dans l'application !",
+                                                fontSize = 11.sp,
+                                                color = Color(0xFFE2E8F0),
+                                                lineHeight = 16.sp
+                                            )
+
+                                            Spacer(modifier = Modifier.height(4.dp))
+                                            Button(
+                                                onClick = {
+                                                    try {
+                                                        val intent = context.packageManager.getLaunchIntentForPackage("org.telegram.messenger")
+                                                            ?: Intent(Intent.ACTION_VIEW, Uri.parse("tg://"))
+                                                        context.startActivity(intent)
+                                                    } catch (e: Exception) {
+                                                        Toast.makeText(context, "Ouvrez Telegram manuellement sur votre téléphone", Toast.LENGTH_SHORT).show()
+                                                    }
+                                                },
+                                                modifier = Modifier.fillMaxWidth(),
+                                                shape = RoundedCornerShape(8.dp),
+                                                colors = ButtonDefaults.buttonColors(containerColor = TelegramBlue.copy(alpha = 0.3f))
+                                            ) {
+                                                Icon(Icons.Default.Launch, contentDescription = null, tint = TelegramBlueLight, modifier = Modifier.size(15.dp))
+                                                Spacer(modifier = Modifier.width(6.dp))
+                                                Text("Ouvrir l'application Telegram", color = TelegramBlueLight, fontSize = 12.sp, fontWeight = FontWeight.SemiBold)
+                                            }
+                                        } else {
+                                            Text(
+                                                text = "Consultez vos messages SMS reçus sur votre ligne mobile ($phoneInput).",
+                                                fontSize = 11.sp,
+                                                color = ElegantTextSecondary,
+                                                lineHeight = 16.sp
+                                            )
+                                        }
+                                    }
+                                }
+
                                 OutlinedTextField(
                                     value = codeInput,
                                     onValueChange = { codeInput = it },
                                     label = { Text("Code de Confirmation Telegram") },
-                                    placeholder = { Text("12345") },
+                                    placeholder = { Text("ex: 12345") },
                                     shape = RoundedCornerShape(12.dp),
                                     modifier = Modifier.fillMaxWidth().testTag("telegram_code_input"),
                                     colors = OutlinedTextFieldDefaults.colors(
@@ -587,6 +698,51 @@ fun TelegramScreen(
                                         }
                                         Text("Valider & Connecter", fontWeight = FontWeight.Bold)
                                     }
+                                }
+
+                                Spacer(modifier = Modifier.height(10.dp))
+
+                                // Resend code by SMS button
+                                OutlinedButton(
+                                    onClick = {
+                                        isResendingCode = true
+                                        viewModel.resendTelegramCode(phoneInput) { res ->
+                                            isResendingCode = false
+                                            toastMessage = res.message
+                                            if (res.success) {
+                                                codeDeliveryType = res.deliveryType ?: "SMS"
+                                            }
+                                        }
+                                    },
+                                    enabled = !isLoading && !isResendingCode,
+                                    modifier = Modifier.fillMaxWidth(),
+                                    shape = RoundedCornerShape(10.dp),
+                                    border = BorderStroke(1.dp, ElegantDarkBorder)
+                                ) {
+                                    if (isResendingCode) {
+                                        CircularProgressIndicator(modifier = Modifier.size(14.dp), strokeWidth = 2.dp, color = TelegramBlue)
+                                        Spacer(modifier = Modifier.width(6.dp))
+                                    } else {
+                                        Icon(Icons.Default.Sms, contentDescription = null, tint = TelegramBlueLight, modifier = Modifier.size(16.dp))
+                                        Spacer(modifier = Modifier.width(6.dp))
+                                    }
+                                    Text("Pas de code ? Renvoyer par SMS", color = TelegramBlueLight, fontSize = 12.sp)
+                                }
+
+                                Spacer(modifier = Modifier.height(4.dp))
+
+                                TextButton(
+                                    onClick = {
+                                        viewModel.resetTelethonSession {
+                                            step = 1
+                                            toastMessage = "Session réinitialisée. Vous pouvez relancer la connexion."
+                                        }
+                                    },
+                                    modifier = Modifier.fillMaxWidth()
+                                ) {
+                                    Icon(Icons.Default.Refresh, contentDescription = null, tint = ElegantOrangeNotice, modifier = Modifier.size(14.dp))
+                                    Spacer(modifier = Modifier.width(4.dp))
+                                    Text("Réinitialiser la session / Recommencer", color = ElegantOrangeNotice, fontSize = 11.sp)
                                 }
                             }
                         }
@@ -1339,6 +1495,35 @@ fun TelegramScreen(
                             }
                             Spacer(modifier = Modifier.height(4.dp))
                             Text(TelegramBridgeScript.FAST_START_COMMAND, color = Color(0xFFFFB74D), fontSize = 10.sp, fontFamily = FontFamily.Monospace)
+                        }
+                    }
+
+                    Surface(
+                        shape = RoundedCornerShape(8.dp),
+                        color = Color.Black,
+                        modifier = Modifier.fillMaxWidth()
+                    ) {
+                        Column(modifier = Modifier.padding(10.dp)) {
+                            Row(
+                                modifier = Modifier.fillMaxWidth(),
+                                horizontalArrangement = Arrangement.SpaceBetween,
+                                verticalAlignment = Alignment.CenterVertically
+                            ) {
+                                Text("Réinitialiser Session SQLite (si blocage)", color = Color(0xFFFF5252), fontSize = 11.sp, fontWeight = FontWeight.Bold)
+                                IconButton(
+                                    onClick = {
+                                        val cleanCmd = TelegramBridgeScript.RESET_SESSION_COMMAND.trim()
+                                        val clipboard = context.getSystemService(Context.CLIPBOARD_SERVICE) as ClipboardManager
+                                        clipboard.setPrimaryClip(ClipData.newPlainText("Telegram Reset Session", cleanCmd))
+                                        Toast.makeText(context, "Commande de réinitialisation copiée !", Toast.LENGTH_SHORT).show()
+                                    },
+                                    modifier = Modifier.size(24.dp)
+                                ) {
+                                    Icon(Icons.Default.ContentCopy, contentDescription = "Copier", tint = Color(0xFFFF5252), modifier = Modifier.size(16.dp))
+                                }
+                            }
+                            Spacer(modifier = Modifier.height(4.dp))
+                            Text(TelegramBridgeScript.RESET_SESSION_COMMAND, color = Color(0xFFFF8A80), fontSize = 10.sp, fontFamily = FontFamily.Monospace)
                         }
                     }
 

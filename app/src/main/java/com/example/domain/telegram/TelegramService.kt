@@ -22,6 +22,9 @@ data class TelegramAuthResult(
     val success: Boolean,
     val message: String,
     val phoneCodeHash: String? = null,
+    val deliveryType: String? = null,
+    val timeout: Int? = null,
+    val alreadyAuthorized: Boolean = false,
     val requiresPassword: Boolean = false,
     val userFirstName: String? = null,
     val username: String? = null,
@@ -130,13 +133,44 @@ class TelegramService(
 
             if (responseCode == 200) {
                 val json = JSONObject(responseText)
+                val isAlreadyAuth = json.optBoolean("already_authorized", false)
+                if (isAlreadyAuth) {
+                    val userObj = json.optJSONObject("user")
+                    val firstName = userObj?.optString("first_name", "Compte Telegram") ?: "Compte Telegram"
+                    val lastName = userObj?.optString("last_name", "") ?: ""
+                    val username = userObj?.optString("username", "") ?: ""
+                    val userId = userObj?.optLong("id", 0L) ?: 0L
+
+                    saveOrUpdateAccount(cleanPhone, cleanApiId, cleanApiHash, "CONNECTED", port)
+                    val current = database.telegramDao().getAccountById(cleanPhone)
+                    if (current != null) {
+                        database.telegramDao().markAccountConnected(cleanPhone, firstName, lastName, username, userId)
+                    }
+                    syncChannels(cleanPhone, port)
+                    logEvent("SUCCESS", "Session Telegram déjà connectée pour $firstName (@$username)")
+                    return@withContext TelegramAuthResult(
+                        success = true,
+                        alreadyAuthorized = true,
+                        message = json.optString("message", "Session déjà connectée !"),
+                        userFirstName = firstName,
+                        username = username,
+                        userId = userId
+                    )
+                }
+
                 val hash = json.optString("phone_code_hash", "")
+                val delivery = json.optString("delivery_type", "APP")
+                val timeout = json.optInt("timeout", 60)
+                val msg = json.optString("message", "Code de vérification envoyé sur votre compte Telegram officiel")
+
                 saveOrUpdateAccount(cleanPhone, cleanApiId, cleanApiHash, "CODE_SENT", port)
-                logEvent("AUTH", "Demande de code Telegram envoyée pour $cleanPhone")
+                logEvent("AUTH", "Demande de code Telegram envoyée pour $cleanPhone (Mode: $delivery)")
                 return@withContext TelegramAuthResult(
                     success = true,
-                    message = "Code de vérification envoyé sur votre compte Telegram officiel",
-                    phoneCodeHash = hash
+                    message = msg,
+                    phoneCodeHash = hash,
+                    deliveryType = delivery,
+                    timeout = timeout
                 )
             } else {
                 val err = try { JSONObject(responseText).optString("error", responseText) } catch (e: Exception) { responseText }
@@ -152,6 +186,73 @@ class TelegramService(
                 success = false,
                 message = "Bridge Python hors-ligne. Veuillez lancer la commande Termux pour démarrer 'telegram-bridge.py' (Port $port)."
             )
+        }
+    }
+
+    /**
+     * Demande le renvoi du code Telegram par SMS.
+     */
+    suspend fun resendVerificationCode(
+        phoneNumber: String,
+        port: Int = defaultPort
+    ): TelegramAuthResult = withContext(Dispatchers.IO) {
+        val cleanPhone = phoneNumber.trim().replace(" ", "")
+        try {
+            val url = URL("http://127.0.0.1:$port/telegram/auth/resend")
+            val conn = (url.openConnection() as HttpURLConnection).apply {
+                connectTimeout = 7000
+                readTimeout = 12000
+                requestMethod = "POST"
+                setRequestProperty("Content-Type", "application/json")
+                doOutput = true
+            }
+            val payload = JSONObject().apply {
+                put("phone", cleanPhone)
+            }
+            OutputStreamWriter(conn.outputStream).use { it.write(payload.toString()) }
+            val responseCode = conn.responseCode
+            val stream = if (responseCode in 200..299) conn.inputStream else conn.errorStream
+            val responseText = stream?.bufferedReader()?.use { it.readText() } ?: ""
+
+            if (responseCode == 200) {
+                val json = JSONObject(responseText)
+                val hash = json.optString("phone_code_hash", "")
+                val delivery = json.optString("delivery_type", "SMS")
+                val timeout = json.optInt("timeout", 60)
+                val msg = json.optString("message", "Nouveau code renvoyé par SMS")
+                logEvent("AUTH", "Code renvoyé pour $cleanPhone (Mode: $delivery)")
+                TelegramAuthResult(
+                    success = true,
+                    message = msg,
+                    phoneCodeHash = hash,
+                    deliveryType = delivery,
+                    timeout = timeout
+                )
+            } else {
+                val err = try { JSONObject(responseText).optString("error", responseText) } catch (e: Exception) { responseText }
+                TelegramAuthResult(success = false, message = "Erreur renvoi : $err")
+            }
+        } catch (e: Exception) {
+            TelegramAuthResult(success = false, message = "Bridge non joignable : ${e.message}")
+        }
+    }
+
+    /**
+     * Réinitialise complètement la session SQLite de Telethon dans Termux.
+     */
+    suspend fun resetTelethonSession(port: Int = defaultPort): Boolean = withContext(Dispatchers.IO) {
+        try {
+            val url = URL("http://127.0.0.1:$port/telegram/auth/reset")
+            val conn = (url.openConnection() as HttpURLConnection).apply {
+                connectTimeout = 4000
+                readTimeout = 5000
+                requestMethod = "POST"
+            }
+            logEvent("AUTH", "Demande de réinitialisation de session Telethon envoyée.")
+            conn.responseCode in 200..299
+        } catch (e: Exception) {
+            Log.w(TAG, "Erreur reset session: ${e.message}")
+            false
         }
     }
 
