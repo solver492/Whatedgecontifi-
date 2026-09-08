@@ -7,6 +7,7 @@ import android.content.Intent
 import android.net.Uri
 import android.widget.Toast
 import androidx.compose.foundation.BorderStroke
+import androidx.compose.foundation.Image
 import androidx.compose.foundation.background
 import androidx.compose.foundation.layout.Arrangement
 import androidx.compose.foundation.layout.Box
@@ -42,6 +43,7 @@ import androidx.compose.material.icons.filled.Info
 import androidx.compose.material.icons.filled.Launch
 import androidx.compose.material.icons.filled.Lock
 import androidx.compose.material.icons.filled.Phone
+import androidx.compose.material.icons.filled.QrCode
 import androidx.compose.material.icons.filled.Refresh
 import androidx.compose.material.icons.filled.Send
 import androidx.compose.material.icons.filled.ShoppingBag
@@ -93,6 +95,9 @@ import androidx.compose.ui.text.input.PasswordVisualTransformation
 import androidx.compose.ui.text.style.TextOverflow
 import androidx.compose.ui.unit.dp
 import androidx.compose.ui.unit.sp
+import com.example.domain.baileys.QrCodeGenerator
+import com.example.domain.telegram.TelegramQrResult
+import kotlinx.coroutines.delay
 import androidx.compose.foundation.clickable
 import androidx.compose.foundation.horizontalScroll
 import androidx.compose.foundation.rememberScrollState
@@ -193,6 +198,26 @@ fun TelegramScreen(
     var codeTimeoutSeconds by remember { mutableStateOf(60) }
     var isResendingCode by remember { mutableStateOf(false) }
     var isResettingSession by remember { mutableStateOf(false) }
+    var loginMethod by remember { mutableStateOf(0) } // 0: Code Téléphone/App, 1: Scan QR Code, 2: Terminal Direct
+    var qrTokenUrl by remember { mutableStateOf<String?>(null) }
+    var isQrLoading by remember { mutableStateOf(false) }
+
+    // Polling automatique de la validation QR Code Telegram
+    LaunchedEffect(qrTokenUrl) {
+        val currentToken = qrTokenUrl
+        if (!currentToken.isNullOrBlank()) {
+            while (qrTokenUrl == currentToken) {
+                delay(2500)
+                viewModel.checkTelegramQrStatus { res ->
+                    if (res.alreadyAuthorized) {
+                        toastMessage = "Connexion Telegram réussie par QR Code !"
+                        qrTokenUrl = null
+                        viewModel.refreshTelegramStatus()
+                    }
+                }
+            }
+        }
+    }
 
     val activeAccount = accounts.firstOrNull { it.status == "CONNECTED" }
 
@@ -450,117 +475,344 @@ fun TelegramScreen(
                             )
 
                             if (step == 1) {
-                                OutlinedTextField(
-                                    value = apiIdInput,
-                                    onValueChange = { apiIdInput = it },
-                                    label = { Text("App API ID") },
-                                    placeholder = { Text("ex: 2040... (my.telegram.org)") },
-                                    leadingIcon = { Icon(Icons.Default.VpnKey, contentDescription = null, tint = TelegramBlue) },
-                                    shape = RoundedCornerShape(12.dp),
-                                    modifier = Modifier.fillMaxWidth().testTag("telegram_api_id_input"),
-                                    colors = OutlinedTextFieldDefaults.colors(
-                                        focusedBorderColor = TelegramBlue,
-                                        unfocusedBorderColor = ElegantDarkBorder
-                                    ),
-                                    keyboardOptions = KeyboardOptions(keyboardType = KeyboardType.Number),
-                                    singleLine = true
-                                )
-
-                                Spacer(modifier = Modifier.height(10.dp))
-
-                                OutlinedTextField(
-                                    value = apiHashInput,
-                                    onValueChange = { apiHashInput = it },
-                                    label = { Text("App API HASH") },
-                                    placeholder = { Text("ex: b083b7c55c...") },
-                                    leadingIcon = { Icon(Icons.Default.Lock, contentDescription = null, tint = TelegramBlue) },
-                                    shape = RoundedCornerShape(12.dp),
-                                    modifier = Modifier.fillMaxWidth().testTag("telegram_api_hash_input"),
-                                    colors = OutlinedTextFieldDefaults.colors(
-                                        focusedBorderColor = TelegramBlue,
-                                        unfocusedBorderColor = ElegantDarkBorder
-                                    ),
-                                    singleLine = true
-                                )
-
-                                Spacer(modifier = Modifier.height(10.dp))
-
-                                OutlinedTextField(
-                                    value = phoneInput,
-                                    onValueChange = { phoneInput = it },
-                                    label = { Text("Numéro Téléphone International") },
-                                    placeholder = { Text("+33612345678 ou +221...") },
-                                    leadingIcon = { Icon(Icons.Default.Phone, contentDescription = null, tint = TelegramBlue) },
-                                    shape = RoundedCornerShape(12.dp),
-                                    modifier = Modifier.fillMaxWidth().testTag("telegram_phone_input"),
-                                    colors = OutlinedTextFieldDefaults.colors(
-                                        focusedBorderColor = TelegramBlue,
-                                        unfocusedBorderColor = ElegantDarkBorder
-                                    ),
-                                    keyboardOptions = KeyboardOptions(keyboardType = KeyboardType.Phone),
-                                    singleLine = true
-                                )
-
-                                if (phoneInput.isNotBlank() && phoneInput.trim().startsWith("0") && !phoneInput.trim().startsWith("00")) {
-                                    Spacer(modifier = Modifier.height(6.dp))
-                                    Text(
-                                        text = "⚠️ Remplacez le '0' par l'indicatif international (ex: +33 pour la France, +221 Sénégal, +225 RCI)",
-                                        color = ElegantOrangeNotice,
-                                        fontSize = 11.sp
+                                // Choix de la méthode de connexion
+                                TabRow(
+                                    selectedTabIndex = loginMethod,
+                                    containerColor = Color(0xFF0F172A),
+                                    contentColor = TelegramBlue,
+                                    indicator = { tabPositions ->
+                                        TabRowDefaults.SecondaryIndicator(
+                                            Modifier.tabIndicatorOffset(tabPositions[loginMethod]),
+                                            color = TelegramBlue
+                                        )
+                                    },
+                                    modifier = Modifier.padding(bottom = 12.dp)
+                                ) {
+                                    Tab(
+                                        selected = loginMethod == 0,
+                                        onClick = { loginMethod = 0 },
+                                        text = { Text("Code / SMS", fontSize = 12.sp, fontWeight = if (loginMethod == 0) FontWeight.Bold else FontWeight.Normal) },
+                                        icon = { Icon(Icons.Default.Phone, contentDescription = null, modifier = Modifier.size(16.dp)) }
+                                    )
+                                    Tab(
+                                        selected = loginMethod == 1,
+                                        onClick = { loginMethod = 1 },
+                                        text = { Text("Scan QR Code", fontSize = 12.sp, fontWeight = if (loginMethod == 1) FontWeight.Bold else FontWeight.Normal) },
+                                        icon = { Icon(Icons.Default.QrCode, contentDescription = null, modifier = Modifier.size(16.dp)) }
+                                    )
+                                    Tab(
+                                        selected = loginMethod == 2,
+                                        onClick = { loginMethod = 2 },
+                                        text = { Text("Termux Direct", fontSize = 12.sp, fontWeight = if (loginMethod == 2) FontWeight.Bold else FontWeight.Normal) },
+                                        icon = { Icon(Icons.Default.Terminal, contentDescription = null, modifier = Modifier.size(16.dp)) }
                                     )
                                 }
 
-                                Spacer(modifier = Modifier.height(14.dp))
+                                if (loginMethod == 0) {
+                                    // METHOD 0: STANDARD PHONE/SMS
+                                    OutlinedTextField(
+                                        value = apiIdInput,
+                                        onValueChange = { apiIdInput = it },
+                                        label = { Text("App API ID") },
+                                        placeholder = { Text("ex: 2040... (my.telegram.org)") },
+                                        leadingIcon = { Icon(Icons.Default.VpnKey, contentDescription = null, tint = TelegramBlue) },
+                                        shape = RoundedCornerShape(12.dp),
+                                        modifier = Modifier.fillMaxWidth().testTag("telegram_api_id_input"),
+                                        colors = OutlinedTextFieldDefaults.colors(
+                                            focusedBorderColor = TelegramBlue,
+                                            unfocusedBorderColor = ElegantDarkBorder
+                                        ),
+                                        keyboardOptions = KeyboardOptions(keyboardType = KeyboardType.Number),
+                                        singleLine = true
+                                    )
 
-                                Button(
-                                    onClick = {
-                                        val cleanPhone = phoneInput.trim().replace(" ", "").replace("-", "")
-                                        val normalizedPhone = if (cleanPhone.startsWith("00")) {
-                                            "+" + cleanPhone.substring(2)
-                                        } else if (!cleanPhone.startsWith("+")) {
-                                            "+$cleanPhone"
-                                        } else cleanPhone
+                                    Spacer(modifier = Modifier.height(10.dp))
 
-                                        viewModel.sendTelegramCode(apiIdInput.trim(), apiHashInput.trim(), normalizedPhone) { result ->
-                                            toastMessage = result.message
-                                            if (result.success) {
-                                                if (result.alreadyAuthorized) {
-                                                    step = 1
-                                                } else {
-                                                    step = 2
-                                                    codeDeliveryType = result.deliveryType ?: "APP"
-                                                    codeTimeoutSeconds = result.timeout ?: 60
+                                    OutlinedTextField(
+                                        value = apiHashInput,
+                                        onValueChange = { apiHashInput = it },
+                                        label = { Text("App API HASH") },
+                                        placeholder = { Text("ex: b083b7c55c...") },
+                                        leadingIcon = { Icon(Icons.Default.Lock, contentDescription = null, tint = TelegramBlue) },
+                                        shape = RoundedCornerShape(12.dp),
+                                        modifier = Modifier.fillMaxWidth().testTag("telegram_api_hash_input"),
+                                        colors = OutlinedTextFieldDefaults.colors(
+                                            focusedBorderColor = TelegramBlue,
+                                            unfocusedBorderColor = ElegantDarkBorder
+                                        ),
+                                        singleLine = true
+                                    )
+
+                                    Spacer(modifier = Modifier.height(10.dp))
+
+                                    OutlinedTextField(
+                                        value = phoneInput,
+                                        onValueChange = { phoneInput = it },
+                                        label = { Text("Numéro Téléphone International") },
+                                        placeholder = { Text("+33612345678 ou +221...") },
+                                        leadingIcon = { Icon(Icons.Default.Phone, contentDescription = null, tint = TelegramBlue) },
+                                        shape = RoundedCornerShape(12.dp),
+                                        modifier = Modifier.fillMaxWidth().testTag("telegram_phone_input"),
+                                        colors = OutlinedTextFieldDefaults.colors(
+                                            focusedBorderColor = TelegramBlue,
+                                            unfocusedBorderColor = ElegantDarkBorder
+                                        ),
+                                        keyboardOptions = KeyboardOptions(keyboardType = KeyboardType.Phone),
+                                        singleLine = true
+                                    )
+
+                                    if (phoneInput.isNotBlank() && phoneInput.trim().startsWith("0") && !phoneInput.trim().startsWith("00")) {
+                                        Spacer(modifier = Modifier.height(6.dp))
+                                        Text(
+                                            text = "⚠️ Remplacez le '0' par l'indicatif international (ex: +33 pour la France, +221 Sénégal, +225 RCI)",
+                                            color = ElegantOrangeNotice,
+                                            fontSize = 11.sp
+                                        )
+                                    }
+
+                                    Spacer(modifier = Modifier.height(14.dp))
+
+                                    Button(
+                                        onClick = {
+                                            val cleanPhone = phoneInput.trim().replace(" ", "").replace("-", "")
+                                            val normalizedPhone = if (cleanPhone.startsWith("00")) {
+                                                "+" + cleanPhone.substring(2)
+                                            } else if (!cleanPhone.startsWith("+")) {
+                                                "+$cleanPhone"
+                                            } else cleanPhone
+
+                                            viewModel.sendTelegramCode(apiIdInput.trim(), apiHashInput.trim(), normalizedPhone) { result ->
+                                                toastMessage = result.message
+                                                if (result.success) {
+                                                    if (result.alreadyAuthorized) {
+                                                        step = 1
+                                                    } else {
+                                                        step = 2
+                                                        codeDeliveryType = result.deliveryType ?: "APP"
+                                                        codeTimeoutSeconds = result.timeout ?: 60
+                                                    }
+                                                }
+                                            }
+                                        },
+                                        enabled = !isLoading && phoneInput.isNotBlank() && apiIdInput.isNotBlank(),
+                                        modifier = Modifier.fillMaxWidth().testTag("telegram_send_code_button"),
+                                        shape = RoundedCornerShape(12.dp),
+                                        colors = ButtonDefaults.buttonColors(containerColor = TelegramBlue)
+                                    ) {
+                                        if (isLoading) {
+                                            CircularProgressIndicator(color = Color.White, modifier = Modifier.size(20.dp), strokeWidth = 2.dp)
+                                            Spacer(modifier = Modifier.width(8.dp))
+                                        }
+                                        Text("Envoyer le Code de Vérification", fontWeight = FontWeight.Bold)
+                                    }
+
+                                    Spacer(modifier = Modifier.height(8.dp))
+                                    TextButton(
+                                        onClick = {
+                                            isResettingSession = true
+                                            viewModel.resetTelethonSession { success ->
+                                                isResettingSession = false
+                                                toastMessage = if (success) "Session Termux réinitialisée !" else "Erreur de réinitialisation."
+                                            }
+                                        },
+                                        enabled = !isLoading && !isResettingSession,
+                                        modifier = Modifier.fillMaxWidth()
+                                    ) {
+                                        Icon(Icons.Default.Refresh, contentDescription = null, tint = ElegantTextSecondary, modifier = Modifier.size(14.dp))
+                                        Spacer(modifier = Modifier.width(4.dp))
+                                        Text("Purger la session SQLite dans Termux", color = ElegantTextSecondary, fontSize = 11.sp)
+                                    }
+                                } else if (loginMethod == 1) {
+                                    // METHOD 1: QR CODE LOGIN (OFFICIAL TELEGRAM NO-SMS METHOD)
+                                    Column(
+                                        modifier = Modifier.fillMaxWidth(),
+                                        horizontalAlignment = Alignment.CenterHorizontally
+                                    ) {
+                                        Text(
+                                            text = "Connexion instantanée par QR Code",
+                                            fontWeight = FontWeight.Bold,
+                                            fontSize = 14.sp,
+                                            color = ElegantTextPrimary
+                                        )
+                                        Text(
+                                            text = "Aucun code SMS nécessaire. Scannez simplement depuis votre application Telegram.",
+                                            fontSize = 12.sp,
+                                            color = ElegantTextSecondary,
+                                            modifier = Modifier.padding(top = 4.dp, bottom = 12.dp)
+                                        )
+
+                                        OutlinedTextField(
+                                            value = apiIdInput,
+                                            onValueChange = { apiIdInput = it },
+                                            label = { Text("App API ID") },
+                                            placeholder = { Text("ex: 2040... (my.telegram.org)") },
+                                            leadingIcon = { Icon(Icons.Default.VpnKey, contentDescription = null, tint = TelegramBlue) },
+                                            shape = RoundedCornerShape(12.dp),
+                                            modifier = Modifier.fillMaxWidth(),
+                                            colors = OutlinedTextFieldDefaults.colors(
+                                                focusedBorderColor = TelegramBlue,
+                                                unfocusedBorderColor = ElegantDarkBorder
+                                            ),
+                                            keyboardOptions = KeyboardOptions(keyboardType = KeyboardType.Number),
+                                            singleLine = true
+                                        )
+
+                                        Spacer(modifier = Modifier.height(8.dp))
+
+                                        OutlinedTextField(
+                                            value = apiHashInput,
+                                            onValueChange = { apiHashInput = it },
+                                            label = { Text("App API HASH") },
+                                            placeholder = { Text("ex: b083b7c55c...") },
+                                            leadingIcon = { Icon(Icons.Default.Lock, contentDescription = null, tint = TelegramBlue) },
+                                            shape = RoundedCornerShape(12.dp),
+                                            modifier = Modifier.fillMaxWidth(),
+                                            colors = OutlinedTextFieldDefaults.colors(
+                                                focusedBorderColor = TelegramBlue,
+                                                unfocusedBorderColor = ElegantDarkBorder
+                                            ),
+                                            singleLine = true
+                                        )
+
+                                        Spacer(modifier = Modifier.height(12.dp))
+
+                                        Button(
+                                            onClick = {
+                                                isQrLoading = true
+                                                viewModel.startTelegramQrLogin(apiIdInput.trim(), apiHashInput.trim()) { res ->
+                                                    isQrLoading = false
+                                                    toastMessage = res.message
+                                                    if (res.success && !res.tokenUrl.isNullOrBlank()) {
+                                                        qrTokenUrl = res.tokenUrl
+                                                    }
+                                                }
+                                            },
+                                            enabled = !isQrLoading && apiIdInput.isNotBlank() && apiHashInput.isNotBlank(),
+                                            modifier = Modifier.fillMaxWidth(),
+                                            shape = RoundedCornerShape(12.dp),
+                                            colors = ButtonDefaults.buttonColors(containerColor = TelegramBlue)
+                                        ) {
+                                            if (isQrLoading) {
+                                                CircularProgressIndicator(color = Color.White, modifier = Modifier.size(18.dp), strokeWidth = 2.dp)
+                                                Spacer(modifier = Modifier.width(8.dp))
+                                            } else {
+                                                Icon(Icons.Default.QrCode, contentDescription = null, modifier = Modifier.size(18.dp))
+                                                Spacer(modifier = Modifier.width(8.dp))
+                                            }
+                                            Text("Générer le QR Code de Connexion", fontWeight = FontWeight.Bold)
+                                        }
+
+                                        if (!qrTokenUrl.isNullOrBlank()) {
+                                            Spacer(modifier = Modifier.height(16.dp))
+                                            val qrBmp = remember(qrTokenUrl) { qrTokenUrl?.let { QrCodeGenerator.generateQrCodeBitmap(it, 512, 512) } }
+                                            if (qrBmp != null) {
+                                                Surface(
+                                                    modifier = Modifier.size(220.dp),
+                                                    shape = RoundedCornerShape(14.dp),
+                                                    color = Color.White,
+                                                    shadowElevation = 4.dp
+                                                ) {
+                                                    Image(
+                                                        bitmap = qrBmp,
+                                                        contentDescription = "QR Code Telegram",
+                                                        modifier = Modifier.fillMaxSize().padding(12.dp)
+                                                    )
+                                                }
+                                            }
+
+                                            Spacer(modifier = Modifier.height(12.dp))
+                                            Card(
+                                                colors = CardDefaults.cardColors(containerColor = Color(0xFF132A45)),
+                                                border = BorderStroke(1.dp, TelegramBlueLight.copy(alpha = 0.3f)),
+                                                shape = RoundedCornerShape(10.dp),
+                                                modifier = Modifier.fillMaxWidth()
+                                            ) {
+                                                Column(modifier = Modifier.padding(12.dp), verticalArrangement = Arrangement.spacedBy(4.dp)) {
+                                                    Text("📲 Instructions de scan :", fontWeight = FontWeight.Bold, color = TelegramBlueLight, fontSize = 12.sp)
+                                                    Text("1. Ouvrez l'application Telegram sur votre téléphone", fontSize = 11.sp, color = ElegantTextPrimary)
+                                                    Text("2. Allez dans Paramètres ⚙️ > Appareils > Associer un appareil", fontSize = 11.sp, color = ElegantTextPrimary)
+                                                    Text("3. Pointez la caméra vers ce QR Code", fontSize = 11.sp, color = ElegantTextPrimary)
+                                                    Text("⏳ Connexion validée automatiquement dès le scan !", fontSize = 11.sp, color = ElegantGreenActive, fontWeight = FontWeight.Bold)
+                                                }
+                                            }
+
+                                            Spacer(modifier = Modifier.height(8.dp))
+                                            Button(
+                                                onClick = {
+                                                    try {
+                                                        val intent = context.packageManager.getLaunchIntentForPackage("org.telegram.messenger")
+                                                            ?: Intent(Intent.ACTION_VIEW, Uri.parse("tg://"))
+                                                        context.startActivity(intent)
+                                                    } catch (e: Exception) {
+                                                        Toast.makeText(context, "Ouvrez Telegram manuellement sur votre téléphone", Toast.LENGTH_SHORT).show()
+                                                    }
+                                                },
+                                                modifier = Modifier.fillMaxWidth(),
+                                                shape = RoundedCornerShape(8.dp),
+                                                colors = ButtonDefaults.buttonColors(containerColor = TelegramBlue.copy(alpha = 0.25f))
+                                            ) {
+                                                Icon(Icons.Default.Launch, contentDescription = null, tint = TelegramBlueLight, modifier = Modifier.size(14.dp))
+                                                Spacer(modifier = Modifier.width(6.dp))
+                                                Text("Ouvrir Telegram", color = TelegramBlueLight, fontSize = 12.sp)
+                                            }
+                                        }
+                                    }
+                                } else {
+                                    // METHOD 2: DIRECT TERMUX TERMINAL LOGIN
+                                    Column(
+                                        modifier = Modifier.fillMaxWidth(),
+                                        verticalArrangement = Arrangement.spacedBy(8.dp)
+                                    ) {
+                                        Text(
+                                            text = "Connexion Directe dans Termux",
+                                            fontWeight = FontWeight.Bold,
+                                            fontSize = 14.sp,
+                                            color = ElegantTextPrimary
+                                        )
+                                        Text(
+                                            text = "Si Telegram refuse l'envoi de SMS, vous pouvez saisir le code directement dans votre terminal Termux de façon interactive :",
+                                            fontSize = 12.sp,
+                                            color = ElegantTextSecondary
+                                        )
+
+                                        Card(
+                                            colors = CardDefaults.cardColors(containerColor = Color(0xFF0D1117)),
+                                            border = BorderStroke(1.dp, Color(0xFF30363D)),
+                                            shape = RoundedCornerShape(8.dp),
+                                            modifier = Modifier.fillMaxWidth()
+                                        ) {
+                                            Row(
+                                                modifier = Modifier.padding(12.dp).fillMaxWidth(),
+                                                verticalAlignment = Alignment.CenterVertically,
+                                                horizontalArrangement = Arrangement.SpaceBetween
+                                            ) {
+                                                Text(
+                                                    text = "cd ~/tg-bridge && python login.py",
+                                                    color = ElegantGreenActive,
+                                                    fontSize = 12.sp,
+                                                    fontFamily = FontFamily.Monospace,
+                                                    modifier = Modifier.weight(1f)
+                                                )
+                                                IconButton(
+                                                    onClick = {
+                                                        val clipboard = context.getSystemService(Context.CLIPBOARD_SERVICE) as ClipboardManager
+                                                        clipboard.setPrimaryClip(ClipData.newPlainText("Commande Login", "cd ~/tg-bridge && python login.py"))
+                                                        Toast.makeText(context, "Commande copiée !", Toast.LENGTH_SHORT).show()
+                                                    },
+                                                    modifier = Modifier.size(28.dp)
+                                                ) {
+                                                    Icon(Icons.Default.ContentCopy, contentDescription = "Copier", tint = TelegramBlueLight, modifier = Modifier.size(16.dp))
                                                 }
                                             }
                                         }
-                                    },
-                                    enabled = !isLoading && phoneInput.isNotBlank() && apiIdInput.isNotBlank(),
-                                    modifier = Modifier.fillMaxWidth().testTag("telegram_send_code_button"),
-                                    shape = RoundedCornerShape(12.dp),
-                                    colors = ButtonDefaults.buttonColors(containerColor = TelegramBlue)
-                                ) {
-                                    if (isLoading) {
-                                        CircularProgressIndicator(color = Color.White, modifier = Modifier.size(20.dp), strokeWidth = 2.dp)
-                                        Spacer(modifier = Modifier.width(8.dp))
-                                    }
-                                    Text("Envoyer le Code de Vérification", fontWeight = FontWeight.Bold)
-                                }
 
-                                Spacer(modifier = Modifier.height(8.dp))
-                                TextButton(
-                                    onClick = {
-                                        isResettingSession = true
-                                        viewModel.resetTelethonSession { success ->
-                                            isResettingSession = false
-                                            toastMessage = if (success) "Session Termux réinitialisée !" else "Erreur de réinitialisation."
-                                        }
-                                    },
-                                    enabled = !isLoading && !isResettingSession,
-                                    modifier = Modifier.fillMaxWidth()
-                                ) {
-                                    Icon(Icons.Default.Refresh, contentDescription = null, tint = ElegantTextSecondary, modifier = Modifier.size(14.dp))
-                                    Spacer(modifier = Modifier.width(4.dp))
-                                    Text("Purger la session SQLite dans Termux", color = ElegantTextSecondary, fontSize = 11.sp)
+                                        Text(
+                                            text = "1. Collez cette commande dans Termux et appuyez sur Entrée.\n2. Suivez les invites (Code Telegram ou appel reçu).\n3. Une fois connecté, relancez simplement : python telegram-bridge.py",
+                                            fontSize = 11.sp,
+                                            color = ElegantTextSecondary,
+                                            lineHeight = 16.sp
+                                        )
+                                    }
                                 }
                             } else {
                                 // Step 2: Code verification & Guidance

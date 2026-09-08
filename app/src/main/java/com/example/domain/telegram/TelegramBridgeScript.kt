@@ -20,6 +20,8 @@ object TelegramBridgeScript {
 
     const val RESET_SESSION_COMMAND = "killall python 2>/dev/null ; rm -f ~/tg-bridge/telethon_session.session* && cd ~/tg-bridge && python telegram-bridge.py"
 
+    const val INTERACTIVE_LOGIN_COMMAND = "cd ~/tg-bridge && python login.py"
+
     val PYTHON_BRIDGE_SCRIPT = """# =========================================================================
 # AI Edge - Telegram Telethon MTProto Real Bridge for Termux / Python Server
 # Port d'écoute HTTP : 8088 | Relais vers Android : 8081 / 8080 / 8082
@@ -34,6 +36,7 @@ import aiohttp
 from aiohttp import web
 from telethon import TelegramClient, events
 from telethon.tl.types import Channel, Chat
+from telethon.tl.functions.auth import ResendCodeRequest
 from telethon.errors import SessionPasswordNeededError
 
 PORT = int(os.environ.get('PORT', 8088))
@@ -125,7 +128,17 @@ async def get_client(api_id, api_hash):
                 await client.disconnect()
             except Exception:
                 pass
-        client = TelegramClient(SESSION_NAME, int(api_id), str(api_hash))
+        # Configuration réaliste de l'appareil Android pour éviter les blocages de sécurité Telegram
+        client = TelegramClient(
+            SESSION_NAME,
+            int(api_id),
+            str(api_hash),
+            device_model="Samsung Galaxy S24 Ultra",
+            system_version="Android 14",
+            app_version="10.9.1",
+            lang_code="fr",
+            system_lang_code="fr-FR"
+        )
         await client.connect()
         attach_telethon_listener(client)
     elif not client.is_connected():
@@ -272,23 +285,23 @@ async def handle_resend_code(request):
             return web.json_response({"success": False, "error": "Identifiants API non initialisés"}, status=400)
             
         tg = await get_client(app_state["api_id"], app_state["api_hash"])
-        print(f"\n🔄 [TELEGRAM] Renvoi de code demandé pour {phone}...", flush=True)
+        print(f"\n🔄 [TELEGRAM] Demande officielle MTProto ResendCodeRequest pour {phone}...", flush=True)
         
-        try:
-            if phone_code_hash:
-                result = await tg.resend_code(phone, phone_code_hash)
-            else:
-                result = await tg.send_code_request(phone, force_sms=True)
-        except Exception as e_resend:
-            print(f"⚠️ Resend direct a échoué ({e_resend}), essai force_sms=True...", flush=True)
-            result = await tg.send_code_request(phone, force_sms=True)
+        if not phone_code_hash:
+            # Re-demander un code pour initialiser le hash MTProto
+            result = await tg.send_code_request(phone)
+            phone_code_hash = result.phone_code_hash
+            phone_code_hash_cache[phone] = phone_code_hash
+            
+        # Appel officiel de l'API MTProto auth.resendCode via Telethon
+        result = await tg(ResendCodeRequest(phone_number=phone, phone_code_hash=phone_code_hash))
             
         phone_code_hash_cache[phone] = result.phone_code_hash
         type_obj = getattr(result, 'type', None)
         type_name = type(type_obj).__name__ if type_obj else "SentCodeTypeSms"
         timeout = getattr(result, 'timeout', 60) or 60
         
-        print(f"✅ Nouveau code renvoyé ! Mode: {type_name} | Timeout: {timeout}s\n", flush=True)
+        print(f"✅ Nouveau code renvoyé avec succès ! Mode: {type_name} | Timeout: {timeout}s\n", flush=True)
         await log_to_android("AUTH", f"Nouveau code renvoyé ({type_name}).")
         
         return web.json_response({
@@ -297,13 +310,95 @@ async def handle_resend_code(request):
             "phone_code_hash": result.phone_code_hash,
             "delivery_type": type_name,
             "timeout": timeout,
-            "message": "Nouveau code renvoyé par Telegram (priorité SMS)."
+            "message": f"Nouveau code renvoyé par Telegram ({type_name})."
         })
     except Exception as e:
         err_msg = str(e)
-        print(f"❌ Erreur resend_code: {err_msg}", flush=True)
+        print(f"❌ Erreur ResendCodeRequest: {err_msg}", flush=True)
         await log_to_android("ERROR", f"Échec renvoi code : {err_msg}")
         return web.json_response({"success": False, "error": err_msg}, status=400)
+
+qr_login_instance = None
+qr_login_task = None
+
+async def handle_qr_start(request):
+    global qr_login_instance, qr_login_task, client
+    try:
+        data = await request.json()
+        api_id = data.get("api_id") or app_state.get("api_id")
+        api_hash = data.get("api_hash") or app_state.get("api_hash")
+        if not api_id or not api_hash:
+            return web.json_response({"success": False, "error": "api_id et api_hash requis"}, status=400)
+            
+        tg = await get_client(api_id, api_hash)
+        
+        if await tg.is_user_authorized():
+            me = await tg.get_me()
+            return web.json_response({
+                "success": True,
+                "already_authorized": True,
+                "user": {
+                    "id": me.id,
+                    "first_name": me.first_name or "",
+                    "username": me.username or "",
+                    "phone": me.phone or ""
+                },
+                "message": "Compte déjà connecté !"
+            })
+
+        qr_login_instance = await tg.qr_login()
+        url = qr_login_instance.url
+        expires_timestamp = int(qr_login_instance.expires.timestamp() * 1000) if getattr(qr_login_instance, 'expires', None) else 0
+        
+        print(f"\n📲 [TELEGRAM QR] Nouveau QR Code MTProto généré !", flush=True)
+        print(f"👉 Token URI : {url}\n", flush=True)
+        await log_to_android("AUTH", "QR Code Telegram généré. Scannez-le depuis Paramètres > Appareils > Associer un appareil.")
+        
+        async def wait_for_qr():
+            try:
+                user = await qr_login_instance.wait()
+                first_n = user.first_name or "Utilisateur"
+                print(f"🎉 [TELEGRAM QR] Connexion validée avec succès par QR Code : {first_n} (@{user.username})", flush=True)
+                await log_to_android("SUCCESS", f"Compte Telegram connecté avec succès par QR Code : {first_n}")
+                attach_telethon_listener(tg)
+                await forward_to_android("/api/telegram/status", {"status": "CONNECTED", "user": {"id": user.id, "first_name": first_n, "username": user.username or ""}})
+            except SessionPasswordNeededError:
+                await log_to_android("AUTH", "Mot de passe 2FA requis après QR Code.")
+            except Exception as e_qr:
+                print(f"⚠️ Fin cycle attente QR: {e_qr}", flush=True)
+                
+        if qr_login_task and not qr_login_task.done():
+            qr_login_task.cancel()
+        qr_login_task = asyncio.create_task(wait_for_qr())
+        
+        return web.json_response({
+            "success": True,
+            "token_url": url,
+            "expires": expires_timestamp,
+            "message": "QR Code généré. Scannez-le depuis votre application Telegram (Paramètres > Appareils)."
+        })
+    except Exception as e:
+        print(f"❌ Erreur QR start: {e}", flush=True)
+        return web.json_response({"success": False, "error": str(e)}, status=400)
+
+async def handle_qr_status(request):
+    global client
+    try:
+        if client and client.is_connected() and await client.is_user_authorized():
+            me = await client.get_me()
+            return web.json_response({
+                "authorized": True,
+                "user": {
+                    "id": me.id,
+                    "first_name": me.first_name or "",
+                    "last_name": me.last_name or "",
+                    "username": me.username or "",
+                    "phone": me.phone or ""
+                }
+            })
+        return web.json_response({"authorized": False})
+    except Exception as e:
+        return web.json_response({"authorized": False, "error": str(e)})
 
 async def handle_reset_session(request):
     try:
@@ -572,6 +667,11 @@ def init_app():
     
     app.router.add_post('/telegram/auth/resend', handle_resend_code)
     app.router.add_post('/auth/resend-code', handle_resend_code)
+
+    app.router.add_post('/telegram/auth/qr-start', handle_qr_start)
+    app.router.add_post('/auth/qr-start', handle_qr_start)
+    app.router.add_get('/telegram/auth/qr-status', handle_qr_status)
+    app.router.add_get('/auth/qr-status', handle_qr_status)
     
     app.router.add_post('/telegram/auth/reset', handle_reset_session)
     app.router.add_post('/auth/reset', handle_reset_session)
@@ -592,6 +692,40 @@ def init_app():
     return app
 
 if __name__ == '__main__':
+    # Génération automatique du script interactif de secours login.py
+    try:
+        with open('login.py', 'w', encoding='utf-8') as f_login:
+            f_login.write('''# ==========================================================
+# AI Edge - Connexion interactive de secours directe dans Termux
+# ==========================================================
+from telethon.sync import TelegramClient
+
+print("=" * 60)
+print("🔑 CONNEXION DIRECTE TELEGRAM DANS LE TERMINAL TERMUX")
+print("=" * 60)
+api_id = input("👉 Entrez votre API ID (ex: 37999859): ").strip()
+api_hash = input("👉 Entrez votre API Hash: ").strip()
+
+client = TelegramClient(
+    'telethon_session',
+    int(api_id),
+    api_hash,
+    device_model="Samsung Galaxy S24 Ultra",
+    system_version="Android 14",
+    app_version="10.9.1",
+    lang_code="fr",
+    system_lang_code="fr-FR"
+)
+client.start()
+me = client.get_me()
+print("\\n" + "=" * 60)
+print(f"🎉 SUCCÈS ! Connecté avec succès : {me.first_name} (@{me.username}) ID:{me.id}")
+print("=" * 60)
+print("👉 Vous pouvez maintenant relancer le pont : python telegram-bridge.py")
+''')
+    except Exception:
+        pass
+
     print(f"🚀 Telegram Telethon Bridge démarré sur le port {PORT}...")
     web.run_app(init_app(), port=PORT, host='0.0.0.0')
 """.trimIndent()

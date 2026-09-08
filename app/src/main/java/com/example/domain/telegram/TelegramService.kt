@@ -31,6 +31,14 @@ data class TelegramAuthResult(
     val userId: Long? = null
 )
 
+data class TelegramQrResult(
+    val success: Boolean,
+    val tokenUrl: String? = null,
+    val expires: Long? = null,
+    val alreadyAuthorized: Boolean = false,
+    val message: String = ""
+)
+
 data class TelegramBridgeStatus(
     val isOnline: Boolean,
     val isAuthenticated: Boolean,
@@ -47,6 +55,7 @@ class TelegramService(
     private val defaultPort: Int = 8088
 ) {
     private val TAG = "TelegramService"
+    private var lastPhoneCodeHash: String? = null
 
     /**
      * Interroge l'état réel du bridge Python Termux sur localhost.
@@ -163,6 +172,10 @@ class TelegramService(
                 val timeout = json.optInt("timeout", 60)
                 val msg = json.optString("message", "Code de vérification envoyé sur votre compte Telegram officiel")
 
+                if (hash.isNotBlank()) {
+                    lastPhoneCodeHash = hash
+                }
+
                 saveOrUpdateAccount(cleanPhone, cleanApiId, cleanApiHash, "CODE_SENT", port)
                 logEvent("AUTH", "Demande de code Telegram envoyée pour $cleanPhone (Mode: $delivery)")
                 return@withContext TelegramAuthResult(
@@ -208,6 +221,9 @@ class TelegramService(
             }
             val payload = JSONObject().apply {
                 put("phone", cleanPhone)
+                if (!lastPhoneCodeHash.isNullOrBlank()) {
+                    put("phone_code_hash", lastPhoneCodeHash)
+                }
             }
             OutputStreamWriter(conn.outputStream).use { it.write(payload.toString()) }
             val responseCode = conn.responseCode
@@ -217,6 +233,9 @@ class TelegramService(
             if (responseCode == 200) {
                 val json = JSONObject(responseText)
                 val hash = json.optString("phone_code_hash", "")
+                if (hash.isNotBlank()) {
+                    lastPhoneCodeHash = hash
+                }
                 val delivery = json.optString("delivery_type", "SMS")
                 val timeout = json.optInt("timeout", 60)
                 val msg = json.optString("message", "Nouveau code renvoyé par SMS")
@@ -234,6 +253,92 @@ class TelegramService(
             }
         } catch (e: Exception) {
             TelegramAuthResult(success = false, message = "Bridge non joignable : ${e.message}")
+        }
+    }
+
+    /**
+     * Démarre une session d'association officielle Telegram par QR Code (évite tout problème de SMS).
+     */
+    suspend fun startQrLogin(
+        apiId: String,
+        apiHash: String,
+        port: Int = defaultPort
+    ): TelegramQrResult = withContext(Dispatchers.IO) {
+        val cleanApiId = apiId.trim()
+        val cleanApiHash = apiHash.trim()
+        try {
+            val url = URL("http://127.0.0.1:$port/telegram/auth/qr-start")
+            val conn = (url.openConnection() as HttpURLConnection).apply {
+                connectTimeout = 7000
+                readTimeout = 12000
+                requestMethod = "POST"
+                setRequestProperty("Content-Type", "application/json")
+                doOutput = true
+            }
+            val payload = JSONObject().apply {
+                put("api_id", cleanApiId)
+                put("api_hash", cleanApiHash)
+            }
+            OutputStreamWriter(conn.outputStream).use { it.write(payload.toString()) }
+            val responseCode = conn.responseCode
+            val stream = if (responseCode in 200..299) conn.inputStream else conn.errorStream
+            val responseText = stream?.bufferedReader()?.use { it.readText() } ?: ""
+
+            if (responseCode == 200) {
+                val json = JSONObject(responseText)
+                val alreadyAuth = json.optBoolean("already_authorized", false)
+                val tokenUrl = json.optString("token_url", "")
+                val expires = json.optLong("expires", 0L)
+                val msg = json.optString("message", "QR Code généré.")
+                TelegramQrResult(
+                    success = true,
+                    tokenUrl = tokenUrl.ifBlank { null },
+                    expires = if (expires > 0) expires else null,
+                    alreadyAuthorized = alreadyAuth,
+                    message = msg
+                )
+            } else {
+                val err = try { JSONObject(responseText).optString("error", responseText) } catch (e: Exception) { responseText }
+                TelegramQrResult(success = false, message = "Erreur QR : $err")
+            }
+        } catch (e: Exception) {
+            TelegramQrResult(success = false, message = "Bridge non joignable : ${e.message}")
+        }
+    }
+
+    /**
+     * Vérifie si le scan du QR Code a été validé sur Telegram.
+     */
+    suspend fun checkQrStatus(port: Int = defaultPort): TelegramAuthResult = withContext(Dispatchers.IO) {
+        try {
+            val url = URL("http://127.0.0.1:$port/telegram/auth/qr-status")
+            val conn = (url.openConnection() as HttpURLConnection).apply {
+                connectTimeout = 3000
+                readTimeout = 4000
+                requestMethod = "GET"
+            }
+            if (conn.responseCode == 200) {
+                val responseText = conn.inputStream.bufferedReader().use { it.readText() }
+                val json = JSONObject(responseText)
+                val isAuth = json.optBoolean("authorized", false)
+                val user = json.optJSONObject("user")
+                if (isAuth && user != null) {
+                    TelegramAuthResult(
+                        success = true,
+                        alreadyAuthorized = true,
+                        userFirstName = user.optString("first_name"),
+                        username = user.optString("username"),
+                        userId = user.optLong("id"),
+                        message = "Connecté avec succès via QR Code !"
+                    )
+                } else {
+                    TelegramAuthResult(success = false, message = "En attente du scan...")
+                }
+            } else {
+                TelegramAuthResult(success = false, message = "Attente scan...")
+            }
+        } catch (e: Exception) {
+            TelegramAuthResult(success = false, message = "Erreur vérification QR : ${e.message}")
         }
     }
 

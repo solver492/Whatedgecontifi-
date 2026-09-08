@@ -37,6 +37,7 @@ import com.example.domain.supabase.SupabaseSyncResult
 import com.example.domain.supabase.SupabaseSyncService
 import com.example.domain.telegram.TelegramAuthResult
 import com.example.domain.telegram.TelegramBridgeStatus
+import com.example.domain.telegram.TelegramQrResult
 import com.example.domain.telegram.TelegramService
 import com.example.util.PriceFormatter
 import com.example.util.ProductMediaManager
@@ -787,6 +788,32 @@ class MainViewModel(application: Application) : AndroidViewModel(application) {
             _isTelegramLoading.value = false
             onResult(success)
             refreshTelegramStatus()
+        }
+    }
+
+    fun startTelegramQrLogin(
+        apiId: String,
+        apiHash: String,
+        onResult: (TelegramQrResult) -> Unit
+    ) {
+        viewModelScope.launch {
+            _isTelegramLoading.value = true
+            val result = telegramService.startQrLogin(apiId, apiHash)
+            _isTelegramLoading.value = false
+            onResult(result)
+            refreshTelegramStatus()
+        }
+    }
+
+    fun checkTelegramQrStatus(
+        onResult: (TelegramAuthResult) -> Unit
+    ) {
+        viewModelScope.launch {
+            val result = telegramService.checkQrStatus()
+            if (result.alreadyAuthorized) {
+                refreshTelegramStatus()
+            }
+            onResult(result)
         }
     }
 
